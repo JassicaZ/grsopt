@@ -49,7 +49,7 @@ class grsoptimizer:
     def _calculate_grs(self, snp_data, betas):
         """计算GRS得分"""
         if self.selected_snps is not None:
-            return np.dot(snp_data[:, self.selected_snps], betas[self.selected_snps])
+            return np.dot(snp_data[:, self.selected_snps], betas)
         else:
             return np.dot(snp_data, betas)
     
@@ -137,11 +137,16 @@ class grsoptimizer:
         probs = self._sigmoid(grs_train)
         
         # Log-Loss 的梯度
-        grad_loss = np.dot(X_train.T, (probs - y_train)) / N
-        
+        if self.selected_snps is not None:
+            X_train= X_train[:, self.selected_snps]
+            grad_loss = np.dot(X_train.T, (probs - y_train)) / N
+        else:
+            grad_loss = np.dot(X_train.T, (probs - y_train)) / N
         # 正则化项的梯度
-        grad_reg = 2 * self.regularization_strength * (betas - self.original_betas)
-        
+        if self.selected_snps is not None:
+            grad_reg = 2 * self.regularization_strength * (betas - self.original_betas[self.selected_snps])
+        else:
+            grad_reg = 2 * self.regularization_strength * (betas - self.original_betas)
         # 总梯度
         return grad_loss + grad_reg
 
@@ -178,6 +183,7 @@ class grsoptimizer:
             self.selected_snps = self._select_top_snps(X, y, self.original_betas)
             working_betas = self.original_betas[self.selected_snps]
             print(f"选择的SNP索引: {self.selected_snps}")
+            print(f"选择的SNP数量: {len(working_betas)}")
         else:
             working_betas = self.original_betas
         
@@ -211,10 +217,7 @@ class grsoptimizer:
                 # 评估当前结果
                 current_betas = result.x
                 if self.selected_snps is not None:
-                    # 创建完整的beta向量
-                    full_betas = self.original_betas.copy()#计算grs时会挑出筛选的snp，所以这里要全部的
-                    full_betas[self.selected_snps] = current_betas
-                    grs = self._calculate_grs(X, full_betas)
+                    grs = self._calculate_grs(X, current_betas)
                 else:
                     grs = self._calculate_grs(X, current_betas)
                 
@@ -226,7 +229,7 @@ class grsoptimizer:
                     
             except Exception as e:
                 print(f"发生异常: {e}")
-                continue
+                raise
         
         print(f"训练集AUC: {best_local_auc:.4f}")
         
@@ -237,14 +240,13 @@ class grsoptimizer:
             best_auc = original_auc
             best_betas = working_betas
 
-        # 使用最优参数和beta值
+        # 使用最优beta值和筛选后的snp
+        self.optimized_betas = best_betas
         if self.selected_snps is not None:
-            # 重建完整的beta向量
-            self.optimized_betas = self.original_betas.copy()
-            self.optimized_betas[self.selected_snps] = best_betas
+            orginal_selected_betas=self.original_betas[self.selected_snps]
         else:
-            self.optimized_betas = best_betas
-        
+            orginal_selected_betas=self.original_betas
+
         # 返回结果
         results = {
             'original_auc': original_auc,
@@ -252,9 +254,8 @@ class grsoptimizer:
             'auc_improvement': best_auc - original_auc,
             'original_betas': self.original_betas,
             'optimized_betas': self.optimized_betas,
-            'beta_changes': self.optimized_betas - self.original_betas
+            'beta_changes': self.optimized_betas - orginal_selected_betas
         }
-        
         print(f"\n=== 优化结果 ===")
         print(f"原始模型AUC: {original_auc:.4f}")
         print(f"优化后AUC: {best_auc:.4f}")
@@ -324,8 +325,6 @@ class grsoptimizer:
         if invalid_params:
             raise ValueError(f"param_grid包含无效的超参数: {invalid_params}. 可调整的超参数为: {valid_params}")
 
-        X = np.array(X)
-        y = np.array(y)
 
         # 初始化变量
         best_params = None
@@ -351,16 +350,19 @@ class grsoptimizer:
             fold_aucs = []
 
             for train_idx, val_idx in skf.split(X, y):
-                X_train, X_val = X[train_idx], X[val_idx]
+                X_train, X_val = X.loc[train_idx,:], X.loc[val_idx,:]
                 y_train, y_val = y[train_idx], y[val_idx]
 
                 # 优化beta
                 self.optimize(X_train, y_train)
 
                 # 在验证集上评估
-                grs_val = self._calculate_grs(X_val, self.optimized_betas)
+                grs_val = self._calculate_grs(np.array(X_val), self.optimized_betas)
                 val_auc = roc_auc_score(y_val, grs_val)
                 fold_aucs.append(val_auc)
+
+                #归零
+                self.selected_snps = None
 
             # 计算当前超参数组合的平均AUC
             mean_auc = np.mean(fold_aucs)
@@ -370,7 +372,7 @@ class grsoptimizer:
             if mean_auc > best_auc:
                 best_auc = mean_auc
                 best_params = current_params
-
+            
         print(f"最佳参数: {json.dumps(best_params, indent=2)}")
         print(f"最佳平均验证集AUC: {best_auc:.4f}")
 
