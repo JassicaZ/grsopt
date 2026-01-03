@@ -12,8 +12,7 @@ warnings.filterwarnings('ignore')
 
 class grsoptimizer:
     def __init__(self, original_betas, regularization_strength=0.01, 
-                 constraint_factor=5.0, max_iter=2000, n_intial=5, noise_scale =0.3,
-                 enable_feature_selection=True, top_snps_ratio=0.5):
+                 max_iter=2000, n_intial=5, noise_scale =0.3,):
         """
         GRS Beta值优化器 
         
@@ -23,83 +22,28 @@ class grsoptimizer:
             原始GRS模型的beta值
         regularization_strength : float
             正则化强度，小样本建议用更小的值
-        constraint_factor : float
-            约束因子，小样本可以放宽约束
         max_iter : int
             最大迭代次数
-        enable_feature_selection : bool
-            是否启用特征选择
-        top_snps_ratio : float
-            保留最重要SNP的比例
         n_intial : int
             不同初始点的数量，用于跳出局部最优
         """
         self.original_betas = original_betas
         self.regularization_strength = regularization_strength
-        self.constraint_factor = constraint_factor
         self.max_iter = max_iter
         self.n_intial = n_intial
         self.noise_scale = noise_scale
-        self.enable_feature_selection = enable_feature_selection
-        self.top_snps_ratio = top_snps_ratio
         self.optimized_betas = None
         self.optimization_history = []
-        self.selected_snps = None
+        
         
     def _calculate_grs(self, snp_data, betas):
         """计算GRS得分"""
-        if self.selected_snps is not None:
-            return np.dot(snp_data[:, self.selected_snps], betas)
-        else:
-            return np.dot(snp_data, betas)
+        return np.dot(snp_data, betas)
     
     def _sigmoid(self,z):
         """Sigmoid函数，且防止数值溢出"""
         return 1 / (1 + np.exp(-np.clip(z, -500, 500)))
-    
-    def _select_top_snps(self, X, y, betas):
-        """基于效应量和单变量关联选择最重要的SNPs"""
-        n_top = max(3, int(len(betas) * self.top_snps_ratio))  # 至少选3个SNP
-        
-        # 方法1: 基于原始beta的绝对值
-        beta_scores = np.abs(betas)
-        
-        # 方法2: 基于单变量关联的p值
-            ##采用卡方检验初步判断snp与疾病的关联性
-        from scipy.stats import chi2_contingency
-        p_values = []
-        
-        for i in range(X.shape[1]):
-            snp = X[:, i]
-            # 创建列联表
-            try:
-                contingency = pd.crosstab(snp, y)
-                if contingency.shape == (3, 2):  # 确保是3x2表格 (0,1,2 vs 0,1)
-                    chi2, p_val, _, _ = chi2_contingency(contingency)
-                    p_values.append(p_val)
-                else:
-                    p_values.append(1.0)  # 如果数据不合适，给最大p值
-            except:
-                p_values.append(1.0)
-        
-        p_values = np.array(p_values)
-        association_scores = -np.log10(p_values + 1e-10)  # 转换为-log10(p)
-        
-        # 综合评分（max-min normalization后加权）
-            ##相对排位而非绝对值，避免极端值影响
-        beta_scores_norm = (beta_scores - np.min(beta_scores)) / (np.max(beta_scores) - np.min(beta_scores) + 1e-8)
-        assoc_scores_norm = (association_scores - np.min(association_scores)) / (np.max(association_scores) - np.min(association_scores) + 1e-8)
-        
-        combined_scores = 0.7 * beta_scores_norm + 0.3 * assoc_scores_norm
-        
-        # 选择top SNPs
-        selected_snps = np.argsort(combined_scores)[-n_top:]
-        
-        print(f"特征选择: 从{len(betas)}个SNP中选择了{len(selected_snps)}个最重要的SNP")
-        return selected_snps
-    
-
-    
+     
     def _objective_function(self, betas, X_train, y_train):
         """
         目标函数：最大化验证集AUC - 正则化项
@@ -137,16 +81,9 @@ class grsoptimizer:
         probs = self._sigmoid(grs_train)
         
         # Log-Loss 的梯度
-        if self.selected_snps is not None:
-            X_train= X_train[:, self.selected_snps]
-            grad_loss = np.dot(X_train.T, (probs - y_train)) / N
-        else:
-            grad_loss = np.dot(X_train.T, (probs - y_train)) / N
+        grad_loss = np.dot(X_train.T, (probs - y_train)) / N
         # 正则化项的梯度
-        if self.selected_snps is not None:
-            grad_reg = 2 * self.regularization_strength * (betas - self.original_betas[self.selected_snps])
-        else:
-            grad_reg = 2 * self.regularization_strength * (betas - self.original_betas)
+        grad_reg = 2 * self.regularization_strength * (betas - self.original_betas)
         # 总梯度
         return grad_loss + grad_reg
 
@@ -167,7 +104,7 @@ class grsoptimizer:
         --------
         dict : 优化结果
         """
-        X = np.array(X)
+        X = np.array(X.reset_index(drop=True))
         y= np.array(y)
 
 
@@ -178,16 +115,7 @@ class grsoptimizer:
         
         print(f"原始模型测试集AUC: {original_auc:.4f}")
         
-        # 特征选择（小样本关键步骤）
-        if self.enable_feature_selection:
-            self.selected_snps = self._select_top_snps(X, y, self.original_betas)
-            working_betas = self.original_betas[self.selected_snps]
-            print(f"选择的SNP索引: {self.selected_snps}")
-            print(f"选择的SNP数量: {len(working_betas)}")
-        else:
-            working_betas = self.original_betas
-        
-        
+        working_betas = self.original_betas
         #beta优化
         best_local_auc = 0
         best_local_betas = None
@@ -216,10 +144,7 @@ class grsoptimizer:
                 
                 # 评估当前结果
                 current_betas = result.x
-                if self.selected_snps is not None:
-                    grs = self._calculate_grs(X, current_betas)
-                else:
-                    grs = self._calculate_grs(X, current_betas)
+                grs = self._calculate_grs(X, current_betas)
                 
                 current_auc = roc_auc_score(y, grs)
                 
@@ -242,10 +167,7 @@ class grsoptimizer:
 
         # 使用最优beta值和筛选后的snp
         self.optimized_betas = best_betas
-        if self.selected_snps is not None:
-            orginal_selected_betas=self.original_betas[self.selected_snps]
-        else:
-            orginal_selected_betas=self.original_betas
+        orginal_selected_betas=self.original_betas
 
         # 返回结果
         results = {
@@ -268,29 +190,6 @@ class grsoptimizer:
         """优化过程的回调函数，记录历史"""
         self.optimization_history.append(xk.copy())
     
-    def analyze_improvements(self, results):
-        """分析改进的详细情况"""
-        print(f"\n=== 详细分析 ===")
-        
-        # Beta变化分析
-        if self.selected_snps is not None:
-            print(f"特征选择: 优化了 {len(self.selected_snps)} 个最重要的SNP")
-            for i, snp_idx in enumerate(self.selected_snps):
-                old_beta = results['original_betas'][snp_idx]
-                new_beta = results['optimized_betas'][snp_idx]
-                change = new_beta - old_beta
-                change_pct = (change / (abs(old_beta) + 1e-8)) * 100
-                print(f"  SNP_{snp_idx}: {old_beta:.4f} → {new_beta:.4f} (变化: {change:+.4f}, {change_pct:+.1f}%)")
-        
-        # 分布分析
-        beta_changes = results['beta_changes']
-        print(f"\nBeta变化统计:")
-        print(f"  平均绝对变化: {np.mean(np.abs(beta_changes)):.4f}")
-        print(f"  最大绝对变化: {np.max(np.abs(beta_changes)):.4f}")
-        print(f"  变化标准差: {np.std(beta_changes):.4f}")
-        
-        return results
-    
     def cross_validate(self, X, y, param_grid, cv_folds=5, random_state=42):
         """
         交叉验证评估并筛选最佳超参数
@@ -304,9 +203,8 @@ class grsoptimizer:
         param_grid : dict
             超参数网格，例如：
             {
-                'regularization_strength': [0.001, 0.01, 0.1],
-                'constraint_factor': [2.0, 5.0, 10.0],
-                'top_snps_ratio': [0.3, 0.5, 0.7]
+                 'regularization_strength': [0.001, 0.01, 0.1],
+                 'noise_scale' :[0.1,0.3],
             }
         cv_folds : int
             交叉验证的折数
@@ -320,7 +218,7 @@ class grsoptimizer:
 
 
         # 检查param_grid中的超参数是否有效
-        valid_params = {'regularization_strength', 'constraint_factor', 'top_snps_ratio', 'n_intial', 'noise_scale'}
+        valid_params = {'regularization_strength','top_snps_ratio', 'n_intial', 'noise_scale'}
         invalid_params = [key for key in param_grid.keys() if key not in valid_params]
         if invalid_params:
             raise ValueError(f"param_grid包含无效的超参数: {invalid_params}. 可调整的超参数为: {valid_params}")
@@ -342,8 +240,6 @@ class grsoptimizer:
             # 设置当前超参数
             current_params = dict(zip(param_names, params))
             self.regularization_strength = current_params.get('regularization_strength', self.regularization_strength)
-            self.constraint_factor = current_params.get('constraint_factor', self.constraint_factor)
-            self.top_snps_ratio = current_params.get('top_snps_ratio', self.top_snps_ratio)
             self.n_intial = current_params.get('n_intial', self.n_intial)
             self.noise_scale = current_params.get('noise_scale', self.noise_scale)
 
@@ -361,8 +257,6 @@ class grsoptimizer:
                 val_auc = roc_auc_score(y_val, grs_val)
                 fold_aucs.append(val_auc)
 
-                #归零
-                self.selected_snps = None
 
             # 计算当前超参数组合的平均AUC
             mean_auc = np.mean(fold_aucs)

@@ -18,10 +18,7 @@ class TestGRSBetaOptimizer(unittest.TestCase):
         self.optimizer = grsopt.grsoptimizer(
             original_betas=self.original_betas,
             regularization_strength=0.01,
-            constraint_factor=5.0,
             max_iter=100,
-            enable_feature_selection=True,
-            top_snps_ratio=0.5
         )
 
     def test_optimize(self):
@@ -45,9 +42,8 @@ class TestGRSBetaOptimizer(unittest.TestCase):
     def test_cross_validate(self):
         # 测试 cross_validate 方法是否可以运行
         param_grid = {
-            'regularization_strength': [0.001, 0.01],
-            'constraint_factor': [2.0, 5.0],
-            'top_snps_ratio': [0.7, 0.9]
+             'regularization_strength': [0.001, 0.01],
+             'noise_scale' :[0.1,0.3]
         }
         results = self.optimizer.cross_validate(self.X, self.y, param_grid, cv_folds=3)
         self.assertIsInstance(results, dict)  # 检查返回值是否为字典
