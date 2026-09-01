@@ -14,18 +14,23 @@ class grsoptimizer:
     def __init__(self, original_betas, regularization_strength=0.01, 
                  max_iter=2000, n_intial=5, noise_scale =0.3,):
         """
-        GRS Beta值优化器 
-        
-        Parameters:
-        -----------
+        Optimizer for Genetic Risk Score (GRS) beta coefficients.
+
+        Parameters
+        ----------
         original_betas : array-like
-            原始GRS模型的beta值
+            Baseline beta coefficients from the original GRS model.
         regularization_strength : float
-            正则化强度，小样本建议用更小的值
+            L2 regularization strength applied to deviations from the
+            original betas. Use smaller values for small datasets.
         max_iter : int
-            最大迭代次数
+            Maximum number of optimizer iterations.
         n_intial : int
-            不同初始点的数量，用于跳出局部最优
+            Number of distinct random initializations to attempt to help
+            escape local minima.
+        noise_scale : float
+            Standard deviation for random perturbations used to create
+            different initial points.
         """
         self.original_betas = original_betas
         self.regularization_strength = regularization_strength
@@ -37,94 +42,110 @@ class grsoptimizer:
         
         
     def _calculate_grs(self, snp_data, betas):
-        """计算GRS得分"""
+        """Compute Genetic Risk Score (GRS) as a dot product.
+
+        Parameters
+        ----------
+        snp_data : array-like
+            Matrix of SNP values (individuals x loci).
+        betas : array-like
+            Beta coefficients for loci.
+
+        Returns
+        -------
+        ndarray
+            GRS values for each individual.
+        """
         return np.dot(snp_data, betas)
     
     def _sigmoid(self,z):
-        """Sigmoid函数，且防止数值溢出"""
+        """Numerically-stable sigmoid / logistic function.
+
+        Clips input to avoid overflow in the exponential.
+        """
         return 1 / (1 + np.exp(-np.clip(z, -500, 500)))
      
     def _objective_function(self, betas, X_train, y_train):
         """
-        目标函数：最大化验证集AUC - 正则化项
+        Objective function for optimization: log-loss with L2 regularization
+        that penalizes deviation from the original beta values.
+
+        This function returns a scalar loss to be minimized by the optimizer.
         """
         try:
-            # 计算训练集的GRS
             grs_train = self._calculate_grs(X_train, betas)
             
-            # 2. 转换为概率 (Probability)
             probs_train = self._sigmoid(grs_train)
-            
-            #计算log-loss
-            loss = log_loss(y_train, probs_train)#1=disease,0=healthy
+            loss = log_loss(y_train, probs_train)  # 1 = disease, 0 = healthy
 
-            
-            # 正则化项：惩罚与原始beta的偏差
+            # L2 regularization penalizing deviation from original betas.
             regularization = self.regularization_strength * np.sum((betas - self.original_betas)**2)
-            
-            # 目标：最大化AUC，最小化正则化项
+
+            # Final scalar objective to minimize: data loss + regularization.
             objective = loss + regularization
-            
+
             return objective
             
-        except Exception as e:
-            # 如果出现数值问题，返回较大的目标值
+        except Exception:
+            # On numerical failure, return a large objective value.
             return 1.0
     
     def _gradient_function(self, betas, X_train, y_train):
         """
-        计算目标函数关于 betas 的导数 (梯度)
+        Compute gradient of the objective with respect to `betas`.
+
+        Combines the gradient of log-loss and the gradient of the L2 regularizer.
         """
         N = len(y_train)
         
         grs_train = self._calculate_grs(X_train, betas)
         probs = self._sigmoid(grs_train)
         
-        # Log-Loss 的梯度
+        # Gradient of log-loss and of the L2 regularizer, summed together.
         grad_loss = np.dot(X_train.T, (probs - y_train)) / N
-        # 正则化项的梯度
         grad_reg = 2 * self.regularization_strength * (betas - self.original_betas)
-        # 总梯度
         return grad_loss + grad_reg
 
     
     
     def optimize(self, X, y):
         """
-        优化beta值
-        
-        Parameters:
-        -----------
-        X : dataframe
-            SNP数据       
-        y : array-like    
-            训练集标签（0/1） 
+        Optimize beta coefficients using gradient-based minimization.
 
-        Returns:
-        --------
-        dict : 优化结果
+        Parameters
+        ----------
+        X : DataFrame
+            SNP data (individuals x loci). Rows correspond to samples.
+        y : array-like
+            Binary labels (0/1) aligned with X rows.
+
+        Returns
+        -------
+        dict
+            Dictionary containing original and optimized AUCs, betas,
+            and the beta differences.
         """
         X = np.array(X.reset_index(drop=True))
         y= np.array(y)
 
 
-        # 计算原始模型的AUC作为基线
+        # Compute baseline AUC using the original betas.
         grs_test = self._calculate_grs(X,self.original_betas)
         
         original_auc = roc_auc_score(y, grs_test)
         
-        print(f"原始模型测试集AUC: {original_auc:.4f}")
+        print(f"Baseline test AUC (original betas): {original_auc:.4f}")
         
         working_betas = self.original_betas
-        #beta优化
+        # Local search for improved betas
         best_local_auc = 0
         best_local_betas = None
         n_intial = self.n_intial
         noise_scale = self.noise_scale
-        for seed in range(n_intial):  # 增加到5个不同的初始点
+        for seed in range(n_intial):
             np.random.seed(seed)
             
-            # 更大的随机扰动，帮助跳出局部最优
+            # Perturb the current betas to produce diverse initializations.
             initial_betas = working_betas + np.random.normal(0, noise_scale, len(working_betas))
             
             try:
@@ -134,15 +155,14 @@ class grsoptimizer:
                 result = minimize(
                     fun= self._objective_function,
                     x0=initial_betas, 
-                    args=(X, y),#计算grs时会挑出筛选的snp，所以这里要全部的
-                    jac=self._gradient_function,  # 传入梯度函数
+                    args=(X, y),
+                    jac=self._gradient_function,
                     method=method,
-                   # bounds=bounds, #待加入自定义功能
                     options=options,
                     callback=self._callback_function
                 )
                 
-                # 评估当前结果
+                # Evaluate the optimization result
                 current_betas = result.x
                 grs = self._calculate_grs(X, current_betas)
                 
@@ -153,10 +173,10 @@ class grsoptimizer:
                     best_local_betas = current_betas
                     
             except Exception as e:
-                print(f"发生异常: {e}")
+                print(f"Exception during local optimization: {e}")
                 raise
         
-        print(f"训练集AUC: {best_local_auc:.4f}")
+        print(f"Best training AUC found (local search): {best_local_auc:.4f}")
         
         if best_local_auc > original_auc:
             best_auc = best_local_auc
@@ -165,11 +185,11 @@ class grsoptimizer:
             best_auc = original_auc
             best_betas = working_betas
 
-        # 使用最优beta值和筛选后的snp
+        # Store optimized betas (or fall back to original betas).
         self.optimized_betas = best_betas
         orginal_selected_betas=self.original_betas
 
-        # 返回结果
+        # Return a summary of the optimization results.
         results = {
             'original_auc': original_auc,
             'optimized_auc': best_auc,
@@ -178,50 +198,57 @@ class grsoptimizer:
             'optimized_betas': self.optimized_betas,
             'beta_changes': self.optimized_betas - orginal_selected_betas
         }
-        print(f"\n=== 优化结果 ===")
-        print(f"原始模型AUC: {original_auc:.4f}")
-        print(f"优化后AUC: {best_auc:.4f}")
-        print(f"AUC提升: {best_auc - original_auc:.4f}")
+        print(f"\n=== Optimization Results ===")
+        print(f"Original model AUC: {original_auc:.4f}")
+        print(f"Optimized AUC: {best_auc:.4f}")
+        print(f"AUC improvement: {best_auc - original_auc:.4f}")
         
         return results
     
 
     def _callback_function(self, xk):
-        """优化过程的回调函数，记录历史"""
+        """Callback for the optimizer: record intermediate betas.
+
+        The optimizer calls this with the current parameter vector at each
+        iteration; we store a copy into the optimization history.
+        """
         self.optimization_history.append(xk.copy())
     
     def cross_validate(self, X, y, param_grid, cv_folds=5, random_state=42):
         """
-        交叉验证评估并筛选最佳超参数
+        Perform cross-validation over a parameter grid to select hyperparameters.
 
-        Parameters:
-        -----------
+        Parameters
+        ----------
         X : array-like
-            SNP数据
+            SNP data (DataFrame expected by the optimizer).
         y : array-like
-            标签（0/1）
+            Binary labels (0/1).
         param_grid : dict
-            超参数网格，例如：
-            {
-                 'regularization_strength': [0.001, 0.01, 0.1],
-                 'noise_scale' :[0.1,0.3],
-            }
-        cv_folds : int
-            交叉验证的折数
-        random_state : int
-            随机种子
+            Grid of hyperparameters to evaluate, e.g.::
 
-        Returns:
-        --------
-        dict : 包含最佳超参数和对应的验证集AUC
+                {
+                    'regularization_strength': [0.001, 0.01, 0.1],
+                    'noise_scale': [0.1, 0.3],
+                }
+
+        cv_folds : int
+            Number of cross-validation folds.
+        random_state : int
+            Random seed for fold splitting.
+
+        Returns
+        -------
+        dict
+            Dictionary containing `best_params` and `best_auc`.
         """
 
 
-        # 检查param_grid中的超参数是否有效
+        # Validate parameter names in the provided grid.
         valid_params = {'regularization_strength','top_snps_ratio', 'n_intial', 'noise_scale'}
         invalid_params = [key for key in param_grid.keys() if key not in valid_params]
         if invalid_params:
-            raise ValueError(f"param_grid包含无效的超参数: {invalid_params}. 可调整的超参数为: {valid_params}")
+            raise ValueError(f"param_grid contains invalid hyperparameters: {invalid_params}. Valid keys: {valid_params}")
 
 
         # 初始化变量
@@ -234,10 +261,10 @@ class grsoptimizer:
 
         skf = StratifiedKFold(n_splits=cv_folds, shuffle=True, random_state=random_state)
 
-        print(f"开始{cv_folds}折交叉验证，共有{len(param_combinations)}组超参数组合...")
+        print(f"Starting {cv_folds}-fold cross-validation: {len(param_combinations)} parameter combinations to evaluate...")
 
         for params in param_combinations:
-            # 设置当前超参数
+            # Apply current hyperparameter combination to this optimizer instance
             current_params = dict(zip(param_names, params))
             self.regularization_strength = current_params.get('regularization_strength', self.regularization_strength)
             self.n_intial = current_params.get('n_intial', self.n_intial)
@@ -249,26 +276,26 @@ class grsoptimizer:
                 X_train, X_val = X.loc[train_idx,:], X.loc[val_idx,:]
                 y_train, y_val = y[train_idx], y[val_idx]
 
-                # 优化beta
+                # Re-run optimization on the training fold.
                 self.optimize(X_train, y_train)
 
-                # 在验证集上评估
+                # Evaluate optimized betas on the validation fold.
                 grs_val = self._calculate_grs(np.array(X_val), self.optimized_betas)
                 val_auc = roc_auc_score(y_val, grs_val)
                 fold_aucs.append(val_auc)
 
 
-            # 计算当前超参数组合的平均AUC
+            # Compute mean AUC across folds for this parameter combination.
             mean_auc = np.mean(fold_aucs)
-            print(f"参数{current_params}的平均验证集AUC: {mean_auc:.4f}")
+            print(f"Mean validation AUC for {current_params}: {mean_auc:.4f}")
 
-            # 更新最佳参数
+            # Update best seen hyperparameters if current mean AUC is better.
             if mean_auc > best_auc:
                 best_auc = mean_auc
                 best_params = current_params
             
-        print(f"最佳参数: {json.dumps(best_params, indent=2)}")
-        print(f"最佳平均验证集AUC: {best_auc:.4f}")
+        print(f"Best parameters: {json.dumps(best_params, indent=2)}")
+        print(f"Best mean validation AUC: {best_auc:.4f}")
 
         return {
             'best_params': best_params,
