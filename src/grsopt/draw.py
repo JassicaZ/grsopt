@@ -7,7 +7,7 @@ from sklearn.preprocessing import LabelEncoder
 
 
 
-def GRS_pic(GRS, model_name, save_path=None):
+def grs_pic(GRS, model_name, save_path=None):
     """
     Draw the distribution curve for Genetic Risk Score (GRS).
 
@@ -25,40 +25,37 @@ def GRS_pic(GRS, model_name, save_path=None):
     matplotlib.axes.Axes
         Axes object of the GRS distribution plot.
     """
-    #计算m1,m2
-    disease_types = GRS['Disease'].unique()  # 获取Disease中所有唯一值
+    # Compute the GRS for the two groups.
+    disease_types = GRS['Disease'].unique()
     m1 = np.mean(GRS[GRS['Disease'] == disease_types[0]]['grs'])
     m2 = np.mean(GRS[GRS['Disease'] == disease_types[1]]['grs'])
-    # 绘制图形
+
+    # Plot the GRS density distribution by disease status.
     plt.figure(figsize=(10, 6))
     pg = sns.kdeplot(data=GRS, x='grs', hue='Disease', fill=True, common_norm=False, alpha=0.8, palette=['#2166AC', '#B2182B'])
 
-    # 添加垂直线
     plt.axvline(x=m1, linestyle='dashed', color='#2166AC')
     plt.axvline(x=m2, linestyle='dashed', color='#B2182B')
 
-    # 设置主题
     sns.set_theme(style="whitegrid")
     plt.grid(False)
 
-    # 设置填充颜色
     handles, labels = pg.get_legend_handles_labels()
     plt.legend(handles, labels, title='')
 
-    # 设置标签
     plt.xlabel('Genetic Risk Score')
     plt.ylabel('Percentage')
-    
-    # 保存图形
+
+    # Save the figure if both the output directory and model name are provided.
     if save_path and model_name:
         plt.savefig(f'{save_path}/{model_name}_grs.png')
     plt.show()
-    plt.close()  # 关闭当前图形，防止重叠
+    plt.close()  # Close the figure to avoid overlap between plots.
 
     return pg
 
 
-def ROC_pic(GRS, model_name, save_path=None):
+def roc_pic(GRS, model_name, save_path=None):
     """
     Plot the ROC curve for Genetic Risk Score (GRS).
 
@@ -77,21 +74,20 @@ def ROC_pic(GRS, model_name, save_path=None):
         Figure object of the ROC curve plot.
     """
 
-    # 提取标签和预测值
-    label_encoder = LabelEncoder()# 将Disease列转换为数值标签,这个转化方法可以看看看
+    # Encode disease labels to numeric values for ROC analysis.
+    label_encoder = LabelEncoder()
     y_true = label_encoder.fit_transform(GRS['Disease'])
     y_scores = GRS['grs']
 
-    # 计算ROC曲线
+    # Compute the ROC curve and AUC value.
     fpr, tpr, _ = roc_curve(y_true, y_scores)
     roc_auc = auc(fpr, tpr)
 
-    # 绘制ROC曲线
-    pg=plt.figure(figsize=(10, 6))
+    # Plot the ROC curve.
+    pg = plt.figure(figsize=(10, 6))
     plt.plot(fpr, tpr, color='darkorange', lw=2, label=f'ROC curve (area = {roc_auc:.2f})')
     plt.plot([0, 1], [0, 1], color='navy', lw=2, linestyle='--')
 
-    # 添加标签和标题
     plt.xlim([0.0, 1.0])
     plt.ylim([0.0, 1.05])
     plt.xlabel('False Positive Rate')
@@ -99,20 +95,20 @@ def ROC_pic(GRS, model_name, save_path=None):
     plt.title('ROC Curve')
     plt.legend(loc='lower right')
 
-    # 显示AUC值
+    # Display the AUC score on the plot.
     plt.text(0.6, 0.5, f'AUC = {roc_auc:.3f}', fontsize=12, bbox=dict(facecolor='white', alpha=0.6))
 
-    # 显示和保存图形
+    # Display and save the figure if the output path and model name are provided.
     if save_path and model_name:
         plt.savefig(f'{save_path}/{model_name}_roc.png')
     plt.show()
-    plt.close()  # 关闭当前图形，防止重叠
+    plt.close()  # Close the figure to avoid overlap between plots.
 
     return pg
 
 
 if __name__ == '__main__':
-    # 构造模拟数据
+    # Generate synthetic data for testing purposes.
     np.random.seed(42)
     n_samples = 100
     GRS = pd.DataFrame({
@@ -120,10 +116,10 @@ if __name__ == '__main__':
         'Disease': np.random.choice(['Healthy', 'Disease'], size=n_samples)
     })
 
-    # 测试 GRS_pic
-    print("Testing GRS_pic...")
-    GRS_pic(GRS, model_name='test_model', save_path=None)
+    # Test the GRS distribution plot.
+    print("Testing grs_pic...")
+    grs_pic(GRS, model_name='test_model', save_path=None)
 
-    # 测试 ROC_pic
-    print("Testing ROC_pic...")
-    ROC_pic(GRS, model_name='test_model', save_path=None)
+    # Test the ROC plot.
+    print("Testing roc_pic...")
+    roc_pic(GRS, model_name='test_model', save_path=None)

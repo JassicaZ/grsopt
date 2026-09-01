@@ -4,3 +4,5 @@ __pycache__/
 *.pyc
 *.tar.gz
 .pytest_cache
+test/__pycache__
+src/grsopt.egg-info/
