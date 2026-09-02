@@ -273,7 +273,7 @@ class grsoptimizer:
             fold_aucs = []
 
             for train_idx, val_idx in skf.split(X, y):
-                X_train, X_val = X.loc[train_idx,:], X.loc[val_idx,:]
+                X_train, X_val = X.iloc[train_idx,:], X.iloc[val_idx,:]
                 y_train, y_val = y[train_idx], y[val_idx]
 
                 # Re-run optimization on the training fold.
