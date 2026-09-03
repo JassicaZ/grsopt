@@ -107,6 +107,52 @@ def roc_pic(GRS, model_name, save_path=None):
     return pg
 
 
+def plot_selection_curve(curve, chosen_n=None, title="", figsize=(8, 5), save_path=None):
+    """Plot the validation AUC curve as a function of the number of SNPs.
+
+    Parameters
+    ----------
+    curve : pd.DataFrame
+        Selection curve with columns ``count``, ``mean_auc`` and ``std_auc``.
+    chosen_n : int, optional
+        Vertical marker for the chosen number of SNPs.
+    title : str, default ''
+        Plot title.
+    figsize : tuple, default (8, 5)
+        Figure size.
+    save_path : str, optional
+        If given, save the figure to this path.
+    """
+    counts = curve["count"]
+    means = curve["mean_auc"]
+    stds = curve["std_auc"]
+
+    fig, ax = plt.subplots(figsize=figsize)
+    ax.errorbar(
+        counts,
+        means,
+        yerr=stds,
+        fmt="-o",
+        color="#2166AC",
+        label="Validation AUC (mean \u00b1 SD)",
+    )
+    ax.set_xlabel("Number of SNPs")
+    ax.set_ylabel("Validation AUC")
+    ax.set_title(title or "AUC vs number of SNPs")
+
+    if chosen_n is not None:
+        ax.axvline(chosen_n, color="#B2182B", linestyle="--", label=f"chosen n = {chosen_n}")
+
+    ax.legend()
+    ax.grid(True, alpha=0.3)
+
+    if save_path:
+        fig.savefig(save_path, bbox_inches="tight")
+    plt.show()
+    plt.close(fig)
+    return fig, ax
+
+
 if __name__ == '__main__':
     # Generate synthetic data for testing purposes.
     np.random.seed(42)

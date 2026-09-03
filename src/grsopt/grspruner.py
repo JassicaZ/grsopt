@@ -52,7 +52,7 @@ def calculate_auc(X, y, betas, selected_features='all'):
 
 
 
-def backward_elimination(X, y, betas, min_features=5):
+def backward_elimination(X, y, betas=None, min_features=5):
     """
     Perform backward elimination to select an optimal SNP subset.
 
@@ -62,8 +62,9 @@ def backward_elimination(X, y, betas, min_features=5):
         Genotype matrix with SNPs in columns and individuals in rows.
     y : array-like
         Binary disease labels aligned with the rows in `X`.
-    betas : pd.DataFrame or pd.Series
-        SNP-indexed beta values. The index must align with `X.columns`.
+    betas : pd.DataFrame, pd.Series, array-like or None, default None
+        SNP-indexed beta values. If ``None``, an unweighted GRS (all betas
+        equal to 1) is used.
     min_features : int, default=5
         Minimum number of features to retain during elimination.
 
@@ -75,6 +76,11 @@ def backward_elimination(X, y, betas, min_features=5):
         A record of feature subsets and the corresponding AUC after each
         elimination step.
     """
+    if betas is None:
+        betas = pd.Series(1.0, index=X.columns)
+    elif isinstance(betas, pd.DataFrame):
+        betas = betas.iloc[:, 0]
+
     selected = list(X.columns)
     best_auc = calculate_auc(X, y, betas, selected)
     history = [(selected.copy(), best_auc)]
@@ -102,6 +108,8 @@ def backward_elimination(X, y, betas, min_features=5):
             break
 
     return selected, history
+
+
 
 
 
