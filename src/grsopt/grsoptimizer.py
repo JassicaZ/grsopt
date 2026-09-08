@@ -9,11 +9,14 @@ from itertools import product
 import matplotlib.pyplot as plt
 import json
 import warnings
+import logging
 warnings.filterwarnings('ignore')
+
+logger = logging.getLogger(__name__)
 
 class grsoptimizer:
     def __init__(self, original_betas, regularization_strength=0.01, 
-                 max_iter=2000, n_intial=5, noise_scale =0.3, loss='log'):
+                 max_iter=2000, n_initial=5, noise_scale =0.3, loss='rank'):
         """
         Optimizer for Genetic Risk Score (GRS) beta coefficients.
 
@@ -26,23 +29,23 @@ class grsoptimizer:
             original betas. Use smaller values for small datasets.
         max_iter : int
             Maximum number of optimizer iterations.
-        n_intial : int
+        n_initial : int
             Number of distinct random initializations to attempt to help
             escape local minima.
         noise_scale : float
             Standard deviation for random perturbations used to create
             different initial points.
-        loss : {'log', 'rank'}, default 'log'
-            Objective to minimise. ``'log'`` is the standard logistic
-            cross-entropy; ``'rank'`` is a pairwise logistic (rank) loss that
-            more directly targets AUC.
+        loss : {'log', 'rank'}, default 'rank'
+            Objective to minimise. ``'rank'`` is a pairwise logistic (rank)
+            loss that more directly targets AUC; ``'log'`` is the standard
+            logistic cross-entropy.
         """
         if loss not in ('log', 'rank'):
             raise ValueError(f"loss must be 'log' or 'rank', got {loss!r}.")
         self.original_betas = original_betas
         self.regularization_strength = regularization_strength
         self.max_iter = max_iter
-        self.n_intial = n_intial
+        self.n_initial = n_initial
         self.noise_scale = noise_scale
         self.loss = loss
         self.optimized_betas = None
@@ -131,8 +134,9 @@ class grsoptimizer:
 
             return objective
 
-        except Exception:
-            # On numerical failure, return a large objective value.
+        except (ValueError, FloatingPointError, OverflowError):
+            # On numerical failure, return a large objective value but log it.
+            logger.warning("Numerical failure in objective; returning large value.", exc_info=True)
             return 1.0
 
     def _gradient_function(self, betas, X_train, y_train):
@@ -187,9 +191,9 @@ class grsoptimizer:
         # Local search for improved betas
         best_local_auc = 0
         best_local_betas = None
-        n_intial = self.n_intial
+        n_initial = self.n_initial
         noise_scale = self.noise_scale
-        for seed in range(n_intial):
+        for seed in range(n_initial):
             np.random.seed(seed)
             
             # Perturb the current betas to produce diverse initializations.
@@ -295,7 +299,7 @@ class grsoptimizer:
 
 
         # Validate parameter names in the provided grid.
-        valid_params = {'regularization_strength','top_snps_ratio', 'n_intial', 'noise_scale'}
+        valid_params = {'regularization_strength', 'n_initial', 'noise_scale'}
         invalid_params = [key for key in param_grid.keys() if key not in valid_params]
         if invalid_params:
             raise ValueError(f"param_grid contains invalid hyperparameters: {invalid_params}. Valid keys: {valid_params}")
@@ -328,7 +332,7 @@ class grsoptimizer:
                 # Apply current hyperparameter combination to this optimizer instance
                 current_params = dict(zip(param_names, params))
                 self.regularization_strength = current_params.get('regularization_strength', self.regularization_strength)
-                self.n_intial = current_params.get('n_intial', self.n_intial)
+                self.n_initial = current_params.get('n_initial', self.n_initial)
                 self.noise_scale = current_params.get('noise_scale', self.noise_scale)
 
                 fold_aucs = []

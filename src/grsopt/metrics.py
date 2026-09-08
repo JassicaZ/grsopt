@@ -7,7 +7,7 @@ import pandas as pd
 from sklearn.metrics import roc_auc_score
 
 
-def _as_beta_series(betas, columns) -> pd.Series:
+def as_beta_series(betas, columns) -> pd.Series:
     """Normalise ``betas`` to a pandas Series indexed by ``columns``.
 
     Accepts ``None`` (uniform weights), a pandas Series, a single-column
@@ -67,7 +67,7 @@ def calculate_auc(X, y, betas=None, selected_features="all") -> float:
         missing = [f for f in selected_features if f not in X.columns]
         raise ValueError(f"Features not found in X: {missing}")
 
-    b = _as_beta_series(betas, selected_features)
+    b = as_beta_series(betas, selected_features)
     grs = np.dot(
         X[selected_features].to_numpy(), b.loc[selected_features].to_numpy()
     )

@@ -42,7 +42,7 @@ print(result["mean_auc"])        # cross-fold validation AUC (mildly optimistic)
 
 ### Configuration (`grsopt.config`)
 
-- `OptimizerConfig`: `regularization_strength`, `max_iter`, `n_initial`, `noise_scale`, `loss`, `random_state`
+- `OptimizerConfig`: `regularization_strength`, `max_iter`, `n_initial`, `noise_scale`, `loss`
 - `SelectionConfig`: `direction` (`'forward'`/`'backward'`), `cv_folds`, `random_state`, `start_n`, `end_n`, `margin`, `retention_threshold`
 
 ### Beta optimization (`grsopt.grsoptimizer`)
@@ -54,8 +54,9 @@ Class for optimizing GRS beta weights.
 - `original_betas`: array-like, original published GRS coefficients in the same column order as `X`.
 - `regularization_strength`: float, regularization weight to control deviation from original betas
 - `max_iter`: int, maximum number of optimization iterations
-- `n_intial`: int, number of random initializations to reduce local optimum risk
+- `n_initial`: int, number of random initializations to reduce local optimum risk
 - `noise_scale`: float, scale of random perturbation for initial beta values
+- `loss`: `'log'` or `'rank'`, default `'rank'`. `'rank'` targets AUC directly; `'log'` is the standard logistic cross-entropy.
 
 #### Methods
 

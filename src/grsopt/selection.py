@@ -1,10 +1,6 @@
 """Feature selection for genetic risk score (GRS) models.
 
-This module implements CV-based forward and backward feature selection. It
-reuses :func:`grsopt.metrics.calculate_auc` for scoring and
-:class:`grsopt.grsoptimizer.grsoptimizer` for beta optimisation. The ranking is
-recomputed inside every CV fold so that validation AUC estimates are not
-optimistic.
+This module implements CV-based forward and backward feature selection.
 """
 
 from __future__ import annotations
@@ -19,7 +15,7 @@ from sklearn.model_selection import StratifiedKFold
 
 from .config import OptimizerConfig, SelectionConfig
 from .grsoptimizer import grsoptimizer
-from .metrics import calculate_auc
+from .metrics import as_beta_series, calculate_auc
 
 logger = logging.getLogger(__name__)
 
@@ -30,23 +26,7 @@ def _coerce_betas(betas, columns) -> pd.Series:
     """Normalise ``betas`` to a Series indexed by ``columns`` for selection."""
     if betas is None:
         raise ValueError("betas must be provided for feature selection.")
-    if isinstance(betas, pd.DataFrame):
-        if betas.shape[1] != 1:
-            raise ValueError(
-                f"betas DataFrame must have exactly one column, got {betas.shape[1]}."
-            )
-        betas = betas.iloc[:, 0]
-    if isinstance(betas, pd.Series):
-        out = betas.reindex(columns)
-        if out.isna().any():
-            missing = columns[out.isna().to_numpy()].tolist()
-            raise ValueError(f"betas is missing coefficients for SNPs {missing}.")
-        return out
-    if len(betas) != len(columns):
-        raise ValueError(
-            f"Length of betas ({len(betas)}) must match number of columns ({len(columns)})."
-        )
-    return pd.Series(np.asarray(betas), index=columns)
+    return as_beta_series(betas, columns)
 
 
 def _validate_inputs(X, y, betas) -> None:
@@ -139,7 +119,7 @@ def fit_optimize_evaluate(
         original_betas=orig,
         regularization_strength=optimizer_cfg.regularization_strength,
         max_iter=optimizer_cfg.max_iter,
-        n_intial=optimizer_cfg.n_initial,
+        n_initial=optimizer_cfg.n_initial,
         noise_scale=optimizer_cfg.noise_scale,
         loss=optimizer_cfg.loss,
     )

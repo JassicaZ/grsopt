@@ -22,8 +22,7 @@ class OptimizerConfig:
     max_iter: int = 2000
     n_initial: int = 5
     noise_scale: float = 0.3
-    loss: str = "log"
-    random_state: Optional[int] = None
+    loss: str = "rank"
 
 
 @dataclass
