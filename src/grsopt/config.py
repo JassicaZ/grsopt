@@ -6,7 +6,7 @@ reproduced by constructing a config object and passing it through the pipeline.
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import Optional
 
 
@@ -28,10 +28,9 @@ class OptimizerConfig:
 
 @dataclass
 class SelectionConfig:
-    """Configuration for the feature-selection CV loop.
+    """Configuration for the greedy feature-selection CV loop.
 
-    ``start_n`` / ``end_n`` are resolved direction-aware by the selection
-    routines:
+    ``start_n`` / ``end_n`` are resolved direction-aware:
 
     * forward: ``start_n`` defaults to 10, ``end_n`` defaults to all SNPs.
     * backward: ``start_n`` defaults to all SNPs, ``end_n`` defaults to 10.
@@ -42,19 +41,5 @@ class SelectionConfig:
     random_state: int = 42
     start_n: Optional[int] = None
     end_n: Optional[int] = None
-    step: int = 1
-    se_rule: bool = True
-    margin: float = 0.0                 # min validation-AUC improvement to accept a deletion
-    retention_threshold: float = 0.5    # min selection frequency to keep a SNP (greedy CV)
-
-
-@dataclass
-class PipelineConfig:
-    """Top-level configuration for :func:`run_selection_pipeline`."""
-
-    selection: SelectionConfig = field(default_factory=SelectionConfig)
-    optimizer: OptimizerConfig = field(default_factory=OptimizerConfig)
-    choose: str = "auto"             # 'auto' or 'manual'
-    chosen_n: Optional[int] = None   # required when choose='manual'
-    plot: bool = False               # plot the curve at the end
-    plot_only: bool = False          # return only the curve (no selection)
+    margin: float = 0.0                 # min validation-AUC improvement to accept a change
+    retention_threshold: float = 0.5    # min selection frequency to keep a SNP

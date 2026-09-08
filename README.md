@@ -22,43 +22,28 @@ pip install .
 
 ```python
 import grsopt
-from grsopt import PipelineConfig, SelectionConfig, OptimizerConfig
+from grsopt import SelectionConfig, OptimizerConfig
 
 # X: genotype DataFrame (individuals x SNPs), y: binary labels (0/1)
 # betas: original GRS coefficients indexed by SNP name
 
-cfg = PipelineConfig(
-    selection=SelectionConfig(direction="forward", cv_folds=5, start_n=10, step=1),
-    optimizer=OptimizerConfig(max_iter=500, n_initial=3),   # reduce cost
+cfg = SelectionConfig(
+    direction="forward", cv_folds=5, start_n=10, end_n=None,
+    margin=0.0, retention_threshold=0.9,
 )
+opt = OptimizerConfig(max_iter=500, n_initial=3)
 
-# 1) Plot the AUC curve first, inspect, then re-run with a chosen count.
-result = grsopt.run_selection_pipeline(X, y, betas, cfg)
-print(result.selected_snps)   # final selected SNP list
-print(result.curve)           # count / mean_auc / std_auc
-```
-
-Two-stage workflow (inspect the curve, then choose):
-
-```python
-from grsopt import PipelineConfig, SelectionConfig, OptimizerConfig
-
-base = dict(selection=SelectionConfig(direction="backward", cv_folds=5), optimizer=OptimizerConfig(max_iter=500, n_initial=3))
-# Stage 1: only plot / return the curve
-cfg = PipelineConfig(plot_only=True, **base)
-result = grsopt.run_selection_pipeline(X, y, betas, cfg)
-# Stage 2: pick the count by eye
-cfg = PipelineConfig(choose="manual", chosen_n=20, **base)
-result = grsopt.run_selection_pipeline(X, y, betas, cfg)
+result = grsopt.forward_selection(X, y, betas, cfg, opt)
+print(result["selected_snps"])   # final selected SNP list
+print(result["mean_auc"])        # cross-fold validation AUC (mildly optimistic)
 ```
 
 ## API
 
 ### Configuration (`grsopt.config`)
 
-- `OptimizerConfig`: `regularization_strength`, `max_iter`, `n_initial`, `noise_scale`, `random_state`
-- `SelectionConfig`: `direction` (`'forward'`/`'backward'`), `cv_folds`, `random_state`, `start_n`, `end_n`, `step`, `se_rule`
-- `PipelineConfig`: `selection`, `optimizer`, `choose` (`'auto'`/`'manual'`), `chosen_n`, `plot`, `plot_only`
+- `OptimizerConfig`: `regularization_strength`, `max_iter`, `n_initial`, `noise_scale`, `loss`, `random_state`
+- `SelectionConfig`: `direction` (`'forward'`/`'backward'`), `cv_folds`, `random_state`, `start_n`, `end_n`, `margin`, `retention_threshold`
 
 ### Beta optimization (`grsopt.grsoptimizer`)
 
@@ -83,21 +68,16 @@ Class for optimizing GRS beta weights.
 
 ### Feature selection (`grsopt.selection`)
 
+Both return a dict with `per_fold`, `frequency`, `selected_snps`, `mean_auc` and `std_auc`.
+
+- `forward_selection(X, y, betas, selection_cfg=None, optimizer_cfg=None)`: greedy forward selection using a shared ranking; SNPs are added and kept only if the optimised validation AUC improves on the best subset found so far (by more than `margin`).
+- `backward_selection(X, y, betas, selection_cfg=None, optimizer_cfg=None)`: greedy backward selection using a shared ranking; SNPs are removed and kept only if the optimised validation AUC improves on the best subset found so far (by more than `margin`).
 - `rank_snps_by_importance(X, y, betas)`: rank SNPs by their marginal AUC contribution (rank-one update trick).
-- `forward_selection_cv(X, y, betas, selection_cfg=None, optimizer_cfg=None)`: forward selection AUC curve.
-- `backward_selection_cv(X, y, betas, selection_cfg=None, optimizer_cfg=None)`: backward (greedy, within-subset re-ranking) AUC curve.
-- `selection_curve_cv(X, y, betas, direction, selection_cfg, optimizer_cfg)`: shared CV loop.
-- `select_optimal_count(curve, choose='auto', chosen_n=None, se_rule=True)`: choose SNP count from the curve (1-SE or manual).
-
-### Pipeline (`grsopt.pipeline`)
-
-- `run_selection_pipeline(X, y, betas, config)`: end-to-end selection, returns a `SelectionResult` (`selected_snps`, `chosen_n`, `curve`, `ordering`, `direction`).
 
 ### Plotting (`grsopt.draw`)
 
 - `grs_pic(GRS, model_name, save_path=None)`: plot the GRS distribution by disease label. `GRS` is a DataFrame with columns `grs` and `Disease`.
 - `roc_pic(GRS, model_name, save_path=None)`: plot the ROC curve and display AUC.
-- `plot_selection_curve(curve, chosen_n=None, ...)`: plot the AUC vs number-of-SNPs curve.
 
 ## Testing
 

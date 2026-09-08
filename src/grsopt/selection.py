@@ -10,7 +10,7 @@ optimistic.
 from __future__ import annotations
 
 import logging
-from typing import Iterator, List, Optional, Tuple
+from typing import List, Optional, Tuple
 
 import numpy as np
 import pandas as pd
@@ -147,150 +147,6 @@ def fit_optimize_evaluate(
     beta_series = to_beta_series(result["optimized_betas"], selected)
     auc_optimized = calculate_auc(X_va, y_va, beta_series, selected)
     return auc_optimized, auc_original
-
-
-def _forward_subsets(
-    X, y, betas, config: SelectionConfig
-) -> Iterator[Tuple[int, ColumnSubset]]:
-    """Yield ``(count, selected)`` for forward selection.
-
-    A single importance ranking is computed on the training data, then SNPs are
-    added in descending importance order.
-    """
-    cols = list(X.columns)
-    start_n = config.start_n if config.start_n is not None else 10
-    end_n = config.end_n if config.end_n is not None else len(cols)
-    start_n = max(1, min(start_n, len(cols)))
-    end_n = max(start_n, min(end_n, len(cols)))
-    order = rank_snps_by_importance(X, y, betas)
-    for c in range(start_n, end_n + 1, config.step):
-        yield c, order[:c]
-
-
-def _backward_subsets(
-    X, y, betas, config: SelectionConfig
-) -> Iterator[Tuple[int, ColumnSubset]]:
-    """Yield ``(count, selected)`` for backward (greedy) selection.
-
-    Starts from the full subset and, at each step, re-ranks the remaining SNPs
-    *within the current subset* and removes the least important one. The
-    ranking is recomputed inside the current subset.
-    """
-    cols = list(X.columns)
-    start_n = config.start_n if config.start_n is not None else len(cols)
-    if not (0 < start_n <= len(cols)):
-        raise ValueError(f"start_n must be in [1, {len(cols)}], got {start_n}.")
-    end_n = config.end_n if config.end_n is not None else 10
-    end_n = max(1, min(end_n, start_n))
-
-    if config.start_n is None:
-        current = list(cols)
-    else:
-        current = rank_snps_by_importance(X, y, betas)[:start_n]
-
-    removed = 0
-    while len(current) >= end_n:
-        if removed % config.step == 0:
-            yield len(current), list(current)
-        if len(current) == end_n:
-            break
-        worst = _within_subset_ranking(X, y, betas, current)[-1]
-        current.remove(worst)
-        removed += 1
-
-
-def selection_curve_cv(
-    X,
-    y,
-    betas,
-    direction: str,
-    selection_cfg: SelectionConfig,
-    optimizer_cfg: OptimizerConfig,
-) -> pd.DataFrame:
-    """Run CV-based forward/backward selection and return an AUC curve.
-
-    Returns a DataFrame with columns ``count``, ``mean_auc``, ``std_auc``,
-    ``mean_improvement`` and ``std_improvement``. ``mean_improvement`` is the
-    mean across folds of ``optimized AUC - original AUC`` on the validation set.
-    """
-    betas = _coerce_betas(betas, X.columns)
-    _validate_inputs(X, y, betas)
-    if direction not in ("forward", "backward"):
-        raise ValueError(
-            f"direction must be 'forward' or 'backward', got {direction!r}."
-        )
-    if selection_cfg.cv_folds < 2:
-        raise ValueError("cv_folds must be at least 2.")
-
-    X = X.reset_index(drop=True)
-    y_arr = np.asarray(y)
-    skf = StratifiedKFold(
-        n_splits=selection_cfg.cv_folds,
-        shuffle=True,
-        random_state=selection_cfg.random_state,
-    )
-    folds = list(skf.split(X, y_arr))
-    logger.info("Running %s selection over %d folds.", direction, len(folds))
-
-    fold_opt: dict = {}
-    fold_orig: dict = {}
-    for fold, (tr_idx, va_idx) in enumerate(folds):
-        X_tr, y_tr = X.iloc[tr_idx], y_arr[tr_idx]
-        X_va, y_va = X.iloc[va_idx], y_arr[va_idx]
-        if direction == "forward":
-            subsets = _forward_subsets(X_tr, y_tr, betas, selection_cfg)
-        else:
-            subsets = _backward_subsets(X_tr, y_tr, betas, selection_cfg)
-        for count, selected in subsets:
-            auc_opt, auc_orig = fit_optimize_evaluate(
-                X_tr, y_tr, X_va, y_va, selected, betas, optimizer_cfg
-            )
-            key = int(count)
-            fold_opt.setdefault(key, []).append(auc_opt)
-            fold_orig.setdefault(key, []).append(auc_orig)
-        logger.info("Finished fold %d/%d.", fold + 1, len(folds))
-
-    records = []
-    for count in sorted(fold_opt):
-        opt_vals = fold_opt[count]
-        orig_vals = fold_orig[count]
-        improvements = [o - p for o, p in zip(opt_vals, orig_vals)]
-        records.append(
-            {
-                "count": int(count),
-                "mean_auc": float(np.mean(opt_vals)),
-                "std_auc": float(np.std(opt_vals)),
-                "mean_improvement": float(np.mean(improvements)),
-                "std_improvement": float(np.std(improvements)),
-            }
-        )
-    return pd.DataFrame(records)
-
-
-def forward_selection_cv(
-    X,
-    y,
-    betas,
-    selection_cfg: Optional[SelectionConfig] = None,
-    optimizer_cfg: Optional[OptimizerConfig] = None,
-) -> pd.DataFrame:
-    """Convenience wrapper for forward selection CV."""
-    selection_cfg = selection_cfg or SelectionConfig()
-    optimizer_cfg = optimizer_cfg or OptimizerConfig()
-    return selection_curve_cv(X, y, betas, "forward", selection_cfg, optimizer_cfg)
-
-
-def backward_selection_cv(
-    X,
-    y,
-    betas,
-    selection_cfg: Optional[SelectionConfig] = None,
-    optimizer_cfg: Optional[OptimizerConfig] = None,
-) -> pd.DataFrame:
-    """Convenience wrapper for backward selection CV."""
-    selection_cfg = selection_cfg or SelectionConfig(direction="backward")
-    optimizer_cfg = optimizer_cfg or OptimizerConfig()
-    return selection_curve_cv(X, y, betas, "backward", selection_cfg, optimizer_cfg)
 
 
 def _greedy_backward_fold(
@@ -437,57 +293,7 @@ def _aggregate_frequency(
     }
 
 
-def greedy_backward_selection_cv(
-    X,
-    y,
-    betas,
-    selection_cfg: Optional[SelectionConfig] = None,
-    optimizer_cfg: Optional[OptimizerConfig] = None,
-) -> dict:
-    """Greedy backward elimination using validation AUC as the accept criterion.
-
-    This performs a wrapper-style greedy backward search: within every fold a
-    deletion is accepted only if the optimised validation AUC improves on the
-    best subset found so far (by more than ``selection_cfg.margin``). Because the
-    validation set is used to accept/reject deletions, the reported validation
-    AUC is optimistic; use an external / nested validation for honest evaluation.
-
-    Returns a dict with ``per_fold`` (list of fold results), ``frequency``
-    (SNP -> selection frequency), ``selected_snps`` (kept SNPs, by frequency),
-    ``mean_auc`` and ``std_auc``.
-    """
-    selection_cfg = selection_cfg or SelectionConfig(direction="backward")
-    optimizer_cfg = optimizer_cfg or OptimizerConfig()
-
-    betas = _coerce_betas(betas, X.columns)
-    _validate_inputs(X, y, betas)
-    if selection_cfg.cv_folds < 2:
-        raise ValueError("cv_folds must be at least 2.")
-
-    X = X.reset_index(drop=True)
-    y_arr = np.asarray(y)
-    skf = StratifiedKFold(
-        n_splits=selection_cfg.cv_folds,
-        shuffle=True,
-        random_state=selection_cfg.random_state,
-    )
-    folds = list(skf.split(X, y_arr))
-    logger.info("Running greedy backward selection over %d folds.", len(folds))
-
-    per_fold = []
-    for fold, (tr_idx, va_idx) in enumerate(folds):
-        X_tr, y_tr = X.iloc[tr_idx], y_arr[tr_idx]
-        X_va, y_va = X.iloc[va_idx], y_arr[va_idx]
-        subset, auc = _greedy_backward_fold(
-            X_tr, y_tr, X_va, y_va, betas, selection_cfg, optimizer_cfg
-        )
-        per_fold.append({"fold": fold, "selected_snps": subset, "val_auc": auc})
-        logger.info("Finished fold %d/%d.", fold + 1, len(folds))
-
-    return _aggregate_frequency(per_fold, X.columns, selection_cfg.retention_threshold)
-
-
-def shared_greedy_backward_selection_cv(
+def backward_selection(
     X,
     y,
     betas,
@@ -496,19 +302,18 @@ def shared_greedy_backward_selection_cv(
 ) -> dict:
     """Greedy backward selection with a shared ranking across all folds.
 
-    Same accept/reject rule as :func:`greedy_backward_selection_cv` (a deletion is
-    kept only if the optimised validation AUC improves on the best subset found so
-    far by more than ``selection_cfg.margin``), but the importance ranking is
-    computed **once** on the full data and shared by every fold — the deletion
-    order is not recomputed inside each fold. Within each fold, deletions are still
-    accepted based on that fold's own validation AUC.
+    A deletion is kept only if the optimised validation AUC improves on the best
+    subset found so far by more than ``selection_cfg.margin``; the importance
+    ranking is computed **once** on the full data and shared by every fold. The
+    ranking is not recomputed inside each fold, but each fold's deletions are still
+    accepted based on its own validation AUC.
 
     Because the ranking is computed on the full data (which includes each fold's
     validation part), the validation AUCs here are mildly optimistic; report
     performance on an independent external set for honest evaluation.
 
-    Returns the same structure as :func:`greedy_backward_selection_cv`
-    (``per_fold``, ``frequency``, ``selected_snps``, ``mean_auc``, ``std_auc``).
+    Returns a dict with ``per_fold``, ``frequency``, ``selected_snps``,
+    ``mean_auc`` and ``std_auc``.
     """
     selection_cfg = selection_cfg or SelectionConfig(direction="backward")
     optimizer_cfg = optimizer_cfg or OptimizerConfig()
@@ -545,55 +350,7 @@ def shared_greedy_backward_selection_cv(
     return _aggregate_frequency(per_fold, X.columns, selection_cfg.retention_threshold)
 
 
-def greedy_forward_selection_cv(
-    X,
-    y,
-    betas,
-    selection_cfg: Optional[SelectionConfig] = None,
-    optimizer_cfg: Optional[OptimizerConfig] = None,
-) -> dict:
-    """Greedy forward selection using validation AUC as the accept criterion.
-
-    Same accept/reject rule as the backward greedy, but SNPs are **added** in
-    importance order: a new SNP is kept only if the optimised validation AUC
-    improves on the best subset found so far (by more than
-    ``selection_cfg.margin``). The ranking is recomputed inside each fold.
-
-    Returns a dict with ``per_fold``, ``frequency``, ``selected_snps``,
-    ``mean_auc`` and ``std_auc``.
-    """
-    selection_cfg = selection_cfg or SelectionConfig(direction="forward")
-    optimizer_cfg = optimizer_cfg or OptimizerConfig()
-
-    betas = _coerce_betas(betas, X.columns)
-    _validate_inputs(X, y, betas)
-    if selection_cfg.cv_folds < 2:
-        raise ValueError("cv_folds must be at least 2.")
-
-    X = X.reset_index(drop=True)
-    y_arr = np.asarray(y)
-    skf = StratifiedKFold(
-        n_splits=selection_cfg.cv_folds,
-        shuffle=True,
-        random_state=selection_cfg.random_state,
-    )
-    folds = list(skf.split(X, y_arr))
-    logger.info("Running greedy forward selection over %d folds.", len(folds))
-
-    per_fold = []
-    for fold, (tr_idx, va_idx) in enumerate(folds):
-        X_tr, y_tr = X.iloc[tr_idx], y_arr[tr_idx]
-        X_va, y_va = X.iloc[va_idx], y_arr[va_idx]
-        subset, auc = _greedy_forward_fold(
-            X_tr, y_tr, X_va, y_va, betas, selection_cfg, optimizer_cfg
-        )
-        per_fold.append({"fold": fold, "selected_snps": subset, "val_auc": auc})
-        logger.info("Finished fold %d/%d.", fold + 1, len(folds))
-
-    return _aggregate_frequency(per_fold, X.columns, selection_cfg.retention_threshold)
-
-
-def shared_greedy_forward_selection_cv(
+def forward_selection(
     X,
     y,
     betas,
@@ -602,17 +359,17 @@ def shared_greedy_forward_selection_cv(
 ) -> dict:
     """Greedy forward selection with a shared ranking across all folds.
 
-    Same accept/reject rule as :func:`greedy_forward_selection_cv`, but the
-    importance ranking is computed **once** on the full data and shared by every
-    fold — SNPs are added in that shared order and kept only if the optimised
-    validation AUC improves on the best subset found so far (by more than
-    ``selection_cfg.margin``).
+    SNPs are added in the shared importance order and kept only if the optimised
+    validation AUC improves on the best subset found so far by more than
+    ``selection_cfg.margin``; the ranking is computed **once** on the full data and
+    shared by every fold.
 
     Because the ranking is computed on the full data (which includes each fold's
     validation part), the validation AUCs here are mildly optimistic; report
     performance on an independent external set for honest evaluation.
 
-    Returns the same structure as :func:`greedy_forward_selection_cv`.
+    Returns a dict with ``per_fold``, ``frequency``, ``selected_snps``,
+    ``mean_auc`` and ``std_auc``.
     """
     selection_cfg = selection_cfg or SelectionConfig(direction="forward")
     optimizer_cfg = optimizer_cfg or OptimizerConfig()
@@ -647,59 +404,3 @@ def shared_greedy_forward_selection_cv(
         logger.info("Finished fold %d/%d.", fold + 1, len(folds))
 
     return _aggregate_frequency(per_fold, X.columns, selection_cfg.retention_threshold)
-
-
-def select_optimal_count(
-    curve: pd.DataFrame,
-    choose: str = "auto",
-    chosen_n: Optional[int] = None,
-    se_rule: bool = True,
-) -> int:
-    """Choose the number of SNPs from a selection curve.
-
-    Parameters
-    ----------
-    curve : pd.DataFrame
-        Must contain columns ``count``, ``mean_auc`` and ``std_auc``.
-    choose : {'auto', 'manual'}, default 'auto'
-        ``auto`` selects automatically (1-SE rule if ``se_rule`` otherwise the
-        max), ``manual`` uses ``chosen_n``.
-    chosen_n : int, optional
-        Required when ``choose='manual'``.
-    se_rule : bool, default True
-        When ``choose='auto'``, use the 1-standard-error rule to pick the most
-        parsimonious count within one SE of the best AUC.
-
-    Returns
-    -------
-    int
-        The chosen number of SNPs.
-    """
-    required = {"count", "mean_auc", "std_auc"}
-    missing = required - set(curve.columns)
-    if missing:
-        raise ValueError(f"curve is missing required columns: {missing}")
-
-    counts = curve["count"].to_numpy()
-    means = curve["mean_auc"].to_numpy()
-    stds = curve["std_auc"].to_numpy()
-
-    if choose == "manual":
-        if chosen_n is None:
-            raise ValueError("choose='manual' requires chosen_n.")
-        if int(chosen_n) not in counts:
-            raise ValueError(
-                f"chosen_n={chosen_n} is not among evaluated counts {counts.tolist()}."
-            )
-        return int(chosen_n)
-    if choose != "auto":
-        raise ValueError(f"choose must be 'auto' or 'manual', got {choose!r}.")
-
-    best_i = int(np.argmax(means))
-    if se_rule:
-        threshold = means[best_i] - stds[best_i]
-        candidates = np.where(means >= threshold)[0]
-        chosen_i = int(candidates[0])
-    else:
-        chosen_i = best_i
-    return int(counts[chosen_i])
