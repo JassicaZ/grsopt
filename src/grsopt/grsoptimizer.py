@@ -4,6 +4,7 @@ from sklearn.metrics import log_loss
 from sklearn.model_selection import  StratifiedKFold
 from sklearn.metrics import roc_auc_score
 from scipy.optimize import minimize
+from scipy.special import expit
 from itertools import product
 import matplotlib.pyplot as plt
 import json
@@ -12,7 +13,7 @@ warnings.filterwarnings('ignore')
 
 class grsoptimizer:
     def __init__(self, original_betas, regularization_strength=0.01, 
-                 max_iter=2000, n_intial=5, noise_scale =0.3,):
+                 max_iter=2000, n_intial=5, noise_scale =0.3, loss='log'):
         """
         Optimizer for Genetic Risk Score (GRS) beta coefficients.
 
@@ -31,12 +32,19 @@ class grsoptimizer:
         noise_scale : float
             Standard deviation for random perturbations used to create
             different initial points.
+        loss : {'log', 'rank'}, default 'log'
+            Objective to minimise. ``'log'`` is the standard logistic
+            cross-entropy; ``'rank'`` is a pairwise logistic (rank) loss that
+            more directly targets AUC.
         """
+        if loss not in ('log', 'rank'):
+            raise ValueError(f"loss must be 'log' or 'rank', got {loss!r}.")
         self.original_betas = original_betas
         self.regularization_strength = regularization_strength
         self.max_iter = max_iter
         self.n_intial = n_intial
         self.noise_scale = noise_scale
+        self.loss = loss
         self.optimized_betas = None
         self.optimization_history = []
         
@@ -65,18 +73,55 @@ class grsoptimizer:
         """
         return 1 / (1 + np.exp(-np.clip(z, -500, 500)))
      
+    def _rank_auc_loss(self, betas, X_train, y_train):
+        """Pairwise logistic rank loss (AUC surrogate), vectorised.
+
+        ``L = mean_{i in P, j in N} softplus(-(s_i - s_j))`` where ``s = X @ beta``.
+        """
+        y_arr = np.asarray(y_train)
+        s = np.asarray(self._calculate_grs(X_train, betas))
+        s_pos = s[y_arr == 1]
+        s_neg = s[y_arr == 0]
+        if len(s_pos) == 0 or len(s_neg) == 0:
+            return 1.0
+        d = s_pos[:, None] - s_neg[None, :]
+        return float(np.logaddexp(0, -d).mean())
+
+    def _rank_auc_gradient(self, betas, X_train, y_train):
+        """Gradient of the pairwise rank loss with respect to ``betas``."""
+        y_arr = np.asarray(y_train)
+        X = np.asarray(X_train)
+        s = X @ betas
+        pos_idx = np.where(y_arr == 1)[0]
+        neg_idx = np.where(y_arr == 0)[0]
+        if len(pos_idx) == 0 or len(neg_idx) == 0:
+            return np.zeros_like(betas)
+        s_pos = s[pos_idx]
+        s_neg = s[neg_idx]
+        d = s_pos[:, None] - s_neg[None, :]
+        g = expit(-d)                       # p x q importance weights
+        a = g.sum(axis=1)                    # per positive
+        b = g.sum(axis=0)                    # per negative
+        p, q = len(pos_idx), len(neg_idx)
+        u = np.zeros(len(y_arr))
+        u[pos_idx] = -a
+        u[neg_idx] = b
+        return (X.T @ u) / (p * q)
+
     def _objective_function(self, betas, X_train, y_train):
         """
-        Objective function for optimization: log-loss with L2 regularization
-        that penalizes deviation from the original beta values.
+        Objective function for optimization: data loss (log or rank) with L2
+        regularization that penalizes deviation from the original beta values.
 
         This function returns a scalar loss to be minimized by the optimizer.
         """
         try:
-            grs_train = self._calculate_grs(X_train, betas)
-            
-            probs_train = self._sigmoid(grs_train)
-            loss = log_loss(y_train, probs_train)  # 1 = disease, 0 = healthy
+            if self.loss == 'rank':
+                loss = self._rank_auc_loss(betas, X_train, y_train)
+            else:
+                grs_train = self._calculate_grs(X_train, betas)
+                probs_train = self._sigmoid(grs_train)
+                loss = log_loss(y_train, probs_train)  # 1 = disease, 0 = healthy
 
             # L2 regularization penalizing deviation from original betas.
             regularization = self.regularization_strength * np.sum((betas - self.original_betas)**2)
@@ -85,24 +130,26 @@ class grsoptimizer:
             objective = loss + regularization
 
             return objective
-            
+
         except Exception:
             # On numerical failure, return a large objective value.
             return 1.0
-    
+
     def _gradient_function(self, betas, X_train, y_train):
         """
         Compute gradient of the objective with respect to `betas`.
 
-        Combines the gradient of log-loss and the gradient of the L2 regularizer.
+        Combines the gradient of the data loss (log or rank) and the gradient of
+        the L2 regularizer.
         """
-        N = len(y_train)
-        
-        grs_train = self._calculate_grs(X_train, betas)
-        probs = self._sigmoid(grs_train)
-        
-        # Gradient of log-loss and of the L2 regularizer, summed together.
-        grad_loss = np.dot(X_train.T, (probs - y_train)) / N
+        if self.loss == 'rank':
+            grad_loss = self._rank_auc_gradient(betas, X_train, y_train)
+        else:
+            N = len(y_train)
+            grs_train = self._calculate_grs(X_train, betas)
+            probs = self._sigmoid(grs_train)
+            grad_loss = np.dot(X_train.T, (probs - y_train)) / N
+
         grad_reg = 2 * self.regularization_strength * (betas - self.original_betas)
         return grad_loss + grad_reg
 
@@ -214,7 +261,7 @@ class grsoptimizer:
         """
         self.optimization_history.append(xk.copy())
     
-    def cross_validate(self, X, y, param_grid, cv_folds=5, random_state=42):
+    def cross_validate(self, X, y, param_grid, cv_folds=5, random_state=42, loss=None):
         """
         Perform cross-validation over a parameter grid to select hyperparameters.
 
@@ -236,6 +283,9 @@ class grsoptimizer:
             Number of cross-validation folds.
         random_state : int
             Random seed for fold splitting.
+        loss : {'log', 'rank'}, optional
+            Objective to use for this CV run. If ``None``, the loss set at
+            construction time is used.
 
         Returns
         -------
@@ -251,6 +301,16 @@ class grsoptimizer:
             raise ValueError(f"param_grid contains invalid hyperparameters: {invalid_params}. Valid keys: {valid_params}")
 
 
+        # Accept both numpy arrays and pandas Series for y.
+        y = np.asarray(y)
+
+        # Temporarily switch the objective (log/rank) for this CV run.
+        prev_loss = self.loss
+        if loss is not None:
+            if loss not in ('log', 'rank'):
+                raise ValueError(f"loss must be 'log' or 'rank', got {loss!r}.")
+            self.loss = loss
+
         # 初始化变量
         best_params = None
         best_auc = -np.inf
@@ -261,43 +321,45 @@ class grsoptimizer:
 
         skf = StratifiedKFold(n_splits=cv_folds, shuffle=True, random_state=random_state)
 
-        print(f"Starting {cv_folds}-fold cross-validation: {len(param_combinations)} parameter combinations to evaluate...")
+        try:
+            print(f"Starting {cv_folds}-fold cross-validation: {len(param_combinations)} parameter combinations to evaluate...")
 
-        for params in param_combinations:
-            # Apply current hyperparameter combination to this optimizer instance
-            current_params = dict(zip(param_names, params))
-            self.regularization_strength = current_params.get('regularization_strength', self.regularization_strength)
-            self.n_intial = current_params.get('n_intial', self.n_intial)
-            self.noise_scale = current_params.get('noise_scale', self.noise_scale)
+            for params in param_combinations:
+                # Apply current hyperparameter combination to this optimizer instance
+                current_params = dict(zip(param_names, params))
+                self.regularization_strength = current_params.get('regularization_strength', self.regularization_strength)
+                self.n_intial = current_params.get('n_intial', self.n_intial)
+                self.noise_scale = current_params.get('noise_scale', self.noise_scale)
 
-            fold_aucs = []
+                fold_aucs = []
 
-            for train_idx, val_idx in skf.split(X, y):
-                X_train, X_val = X.iloc[train_idx,:], X.iloc[val_idx,:]
-                y_train, y_val = y[train_idx], y[val_idx]
+                for train_idx, val_idx in skf.split(X, y):
+                    X_train, X_val = X.iloc[train_idx,:], X.iloc[val_idx,:]
+                    y_train, y_val = y[train_idx], y[val_idx]
 
-                # Re-run optimization on the training fold.
-                self.optimize(X_train, y_train)
+                    # Re-run optimization on the training fold.
+                    self.optimize(X_train, y_train)
 
-                # Evaluate optimized betas on the validation fold.
-                grs_val = self._calculate_grs(np.array(X_val), self.optimized_betas)
-                val_auc = roc_auc_score(y_val, grs_val)
-                fold_aucs.append(val_auc)
+                    # Evaluate optimized betas on the validation fold.
+                    grs_val = self._calculate_grs(np.array(X_val), self.optimized_betas)
+                    val_auc = roc_auc_score(y_val, grs_val)
+                    fold_aucs.append(val_auc)
 
+                # Compute mean AUC across folds for this parameter combination.
+                mean_auc = np.mean(fold_aucs)
+                print(f"Mean validation AUC for {current_params}: {mean_auc:.4f}")
 
-            # Compute mean AUC across folds for this parameter combination.
-            mean_auc = np.mean(fold_aucs)
-            print(f"Mean validation AUC for {current_params}: {mean_auc:.4f}")
+                # Update best seen hyperparameters if current mean AUC is better.
+                if mean_auc > best_auc:
+                    best_auc = mean_auc
+                    best_params = current_params
 
-            # Update best seen hyperparameters if current mean AUC is better.
-            if mean_auc > best_auc:
-                best_auc = mean_auc
-                best_params = current_params
-            
-        print(f"Best parameters: {json.dumps(best_params, indent=2)}")
-        print(f"Best mean validation AUC: {best_auc:.4f}")
+            print(f"Best parameters: {json.dumps(best_params, indent=2)}")
+            print(f"Best mean validation AUC: {best_auc:.4f}")
 
-        return {
-            'best_params': best_params,
-            'best_auc': best_auc
-        }
+            return {
+                'best_params': best_params,
+                'best_auc': best_auc
+            }
+        finally:
+            self.loss = prev_loss

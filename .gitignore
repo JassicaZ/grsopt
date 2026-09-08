@@ -7,3 +7,5 @@ __pycache__/
 test/__pycache__
 src/grsopt.egg-info/
 tests/.DS_Store
+.Rhistory
+src/.DS_Store

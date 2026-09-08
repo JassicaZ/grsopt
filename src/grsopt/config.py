@@ -12,12 +12,17 @@ from typing import Optional
 
 @dataclass
 class OptimizerConfig:
-    """Configuration for the GRS beta optimizer (``grsoptimizer``)."""
+    """Configuration for the GRS beta optimizer (``grsoptimizer``).
+
+    ``loss`` selects the objective: ``'log'`` for the logistic cross-entropy or
+    ``'rank'`` for the pairwise logistic (AUC) rank loss.
+    """
 
     regularization_strength: float = 0.01
     max_iter: int = 2000
     n_initial: int = 5
     noise_scale: float = 0.3
+    loss: str = "log"
     random_state: Optional[int] = None
 
 
@@ -39,6 +44,8 @@ class SelectionConfig:
     end_n: Optional[int] = None
     step: int = 1
     se_rule: bool = True
+    margin: float = 0.0                 # min validation-AUC improvement to accept a deletion
+    retention_threshold: float = 0.5    # min selection frequency to keep a SNP (greedy CV)
 
 
 @dataclass

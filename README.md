@@ -5,9 +5,7 @@ A lightweight Python package for optimizing genetic risk score (GRS) models. `gr
 ## Key Features
 
 - Optimize published GRS weights using gradient-based methods
-- CV-based **forward** and **backward** SNP feature selection (ranking recomputed inside every fold to avoid optimistic estimates)
-- Automatic (1-SE rule) or manual selection of the number of SNPs from the AUC curve
-- Centralized experiment configuration via dataclasses for reproducible runs
+- CV-based **forward** or **backward** SNP feature selection 
 - Plot GRS score distributions, ROC curves, and SNP-selection curves
 
 ## Installation

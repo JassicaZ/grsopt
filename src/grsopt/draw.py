@@ -110,10 +110,15 @@ def roc_pic(GRS, model_name, save_path=None):
 def plot_selection_curve(curve, chosen_n=None, title="", figsize=(8, 5), save_path=None):
     """Plot the validation AUC curve as a function of the number of SNPs.
 
+    If ``curve`` contains ``mean_improvement``, a second line showing the mean
+    AUC improvement (optimised minus original betas) is overlaid on a twin
+    y-axis.
+
     Parameters
     ----------
     curve : pd.DataFrame
-        Selection curve with columns ``count``, ``mean_auc`` and ``std_auc``.
+        Selection curve with columns ``count``, ``mean_auc`` and ``std_auc``,
+        and optionally ``mean_improvement`` / ``std_improvement``.
     chosen_n : int, optional
         Vertical marker for the chosen number of SNPs.
     title : str, default ''
@@ -140,10 +145,30 @@ def plot_selection_curve(curve, chosen_n=None, title="", figsize=(8, 5), save_pa
     ax.set_ylabel("Validation AUC")
     ax.set_title(title or "AUC vs number of SNPs")
 
+    ax2 = None
+    # Optional second axis: mean AUC improvement (optimised - original betas).
+    if "mean_improvement" in curve.columns:
+        imp = curve["mean_improvement"]
+        ax2 = ax.twinx()
+        ax2.plot(
+            counts,
+            imp,
+            "-s",
+            color="#B2182B",
+            label="AUC improvement (opt \u2212 orig)",
+        )
+        ax2.axhline(0, color="grey", linestyle=":", linewidth=1)
+        ax2.set_ylabel("AUC improvement")
+
     if chosen_n is not None:
         ax.axvline(chosen_n, color="#B2182B", linestyle="--", label=f"chosen n = {chosen_n}")
 
-    ax.legend()
+    # Merge legend handles from both axes.
+    handles, labels = ax.get_legend_handles_labels()
+    if ax2 is not None:
+        h2, l2 = ax2.get_legend_handles_labels()
+        handles, labels = handles + h2, labels + l2
+    ax.legend(handles, labels, loc="best")
     ax.grid(True, alpha=0.3)
 
     if save_path:

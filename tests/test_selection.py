@@ -37,6 +37,17 @@ def test_forward_selection_cv_returns_curve():
     assert curve["count"].min() == 2
 
 
+def test_optimizer_config_rank_loss():
+    X, y, betas = _make_data()
+    sel = SelectionConfig(direction="forward", cv_folds=3, start_n=2, end_n=4, step=1)
+    opt = OptimizerConfig(
+        max_iter=20, n_initial=1, regularization_strength=0.01, loss="rank"
+    )
+    curve = grsopt.forward_selection_cv(X, y, betas, sel, opt)
+    assert isinstance(curve, pd.DataFrame)
+    assert {"count", "mean_auc", "std_auc"} <= set(curve.columns)
+
+
 def test_backward_selection_cv_returns_curve():
     X, y, betas = _make_data()
     sel = SelectionConfig(direction="backward", cv_folds=3, start_n=6, end_n=2, step=2)
@@ -45,6 +56,66 @@ def test_backward_selection_cv_returns_curve():
     assert {"count", "mean_auc", "std_auc"} <= set(curve.columns)
     assert curve["count"].max() == 6
     assert curve["count"].min() == 2
+
+
+def test_greedy_backward_selection_cv():
+    X, y, betas = _make_data()
+    sel = SelectionConfig(
+        direction="backward", cv_folds=3, start_n=6, end_n=2, margin=0.0,
+        retention_threshold=0.5,
+    )
+    res = grsopt.greedy_backward_selection_cv(X, y, betas, sel, _fast_optimizer())
+    assert isinstance(res, dict)
+    assert "per_fold" in res and len(res["per_fold"]) == 3
+    assert "frequency" in res and "selected_snps" in res
+    assert "mean_auc" in res and "std_auc" in res
+    for rec in res["per_fold"]:
+        assert 2 <= len(rec["selected_snps"]) <= 6
+
+
+def test_shared_greedy_backward_selection_cv():
+    X, y, betas = _make_data()
+    sel = SelectionConfig(
+        direction="backward", cv_folds=3, start_n=6, end_n=2, margin=0.0,
+        retention_threshold=0.5,
+    )
+    res = grsopt.shared_greedy_backward_selection_cv(X, y, betas, sel, _fast_optimizer())
+    assert isinstance(res, dict)
+    assert "per_fold" in res and len(res["per_fold"]) == 3
+    assert "frequency" in res and "selected_snps" in res
+    assert "mean_auc" in res and "std_auc" in res
+    for rec in res["per_fold"]:
+        assert 2 <= len(rec["selected_snps"]) <= 6
+
+
+def test_greedy_forward_selection_cv():
+    X, y, betas = _make_data()
+    sel = SelectionConfig(
+        direction="forward", cv_folds=3, start_n=2, end_n=6, margin=0.0,
+        retention_threshold=0.5,
+    )
+    res = grsopt.greedy_forward_selection_cv(X, y, betas, sel, _fast_optimizer())
+    assert isinstance(res, dict)
+    assert "per_fold" in res and len(res["per_fold"]) == 3
+    assert "frequency" in res and "selected_snps" in res
+    assert "mean_auc" in res and "std_auc" in res
+    for rec in res["per_fold"]:
+        assert 2 <= len(rec["selected_snps"]) <= 6
+
+
+def test_shared_greedy_forward_selection_cv():
+    X, y, betas = _make_data()
+    sel = SelectionConfig(
+        direction="forward", cv_folds=3, start_n=2, end_n=6, margin=0.0,
+        retention_threshold=0.5,
+    )
+    res = grsopt.shared_greedy_forward_selection_cv(X, y, betas, sel, _fast_optimizer())
+    assert isinstance(res, dict)
+    assert "per_fold" in res and len(res["per_fold"]) == 3
+    assert "frequency" in res and "selected_snps" in res
+    assert "mean_auc" in res and "std_auc" in res
+    for rec in res["per_fold"]:
+        assert 2 <= len(rec["selected_snps"]) <= 6
 
 
 def test_select_optimal_count_se_rule():
