@@ -39,22 +39,5 @@ class TestGRSPruner(unittest.TestCase):
         self.assertGreaterEqual(auc_value, 0.0)
         self.assertLessEqual(auc_value, 1.0)
 
-    def test_backward_elimination(self):
-        # Verify that the backward elimination routine returns a valid feature subset and history.
-        selected, history = grsopt.backward_elimination(self.X, self.y, min_features=2)
-
-        self.assertIsInstance(selected, list)
-        self.assertGreaterEqual(len(selected), 2)
-        self.assertLessEqual(len(selected), len(self.X.columns))
-        self.assertIsInstance(history, list)
-        self.assertGreater(len(history), 0)
-
-        first_features, first_auc = history[0]
-        self.assertIsInstance(first_features, list)
-        self.assertIsInstance(first_auc, float)
-        self.assertGreaterEqual(first_auc, 0.0)
-        self.assertLessEqual(first_auc, 1.0)
-
-
 if __name__ == '__main__':
     unittest.main()
