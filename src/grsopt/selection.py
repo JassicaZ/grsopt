@@ -122,6 +122,7 @@ def fit_optimize_evaluate(
         n_initial=optimizer_cfg.n_initial,
         noise_scale=optimizer_cfg.noise_scale,
         loss=optimizer_cfg.loss,
+        verbose=optimizer_cfg.verbose,
     )
     result = opt.optimize(X_tr[selected], y_tr)
     beta_series = to_beta_series(result["optimized_betas"], selected)
@@ -138,6 +139,7 @@ def _greedy_backward_fold(
     selection_cfg: SelectionConfig,
     optimizer_cfg: OptimizerConfig,
     global_order: Optional[ColumnSubset] = None,
+    fold: int = 0,
 ) -> Tuple[ColumnSubset, float]:
     """Greedy backward elimination within a single fold.
 
@@ -182,9 +184,11 @@ def _greedy_backward_fold(
                 X_tr, y_tr, X_va, y_va, candidate, betas, optimizer_cfg
             )[0]
             if cand_auc > best_auc + selection_cfg.margin:
+                old_auc = best_auc
                 current = candidate
                 best_auc = cand_auc
                 accepted = True
+                print(f"[fold {fold}] removed {snp}: validation AUC {old_auc:.4f} -> {cand_auc:.4f} (Δ {cand_auc - old_auc:+.4f})")
                 break
         if not accepted:
             break
@@ -201,6 +205,7 @@ def _greedy_forward_fold(
     selection_cfg: SelectionConfig,
     optimizer_cfg: OptimizerConfig,
     global_order: Optional[ColumnSubset] = None,
+    fold: int = 0,
 ) -> Tuple[ColumnSubset, float]:
     """Greedy forward selection within a single fold.
 
@@ -238,9 +243,11 @@ def _greedy_forward_fold(
                 X_tr, y_tr, X_va, y_va, candidate, betas, optimizer_cfg
             )[0]
             if cand_auc > best_auc + selection_cfg.margin:
+                old_auc = best_auc
                 current = candidate
                 best_auc = cand_auc
                 accepted = True
+                print(f"[fold {fold}] added {snp}: validation AUC {old_auc:.4f} -> {cand_auc:.4f} (Δ {cand_auc - old_auc:+.4f})")
                 break
         if not accepted:
             break
@@ -322,12 +329,14 @@ def backward_selection(
         X_va, y_va = X.iloc[va_idx], y_arr[va_idx]
         subset, auc = _greedy_backward_fold(
             X_tr, y_tr, X_va, y_va, betas, selection_cfg, optimizer_cfg,
-            global_order=global_order,
+            global_order=global_order, fold=fold,
         )
         per_fold.append({"fold": fold, "selected_snps": subset, "val_auc": auc})
         logger.info("Finished fold %d/%d.", fold + 1, len(folds))
 
-    return _aggregate_frequency(per_fold, X.columns, selection_cfg.retention_threshold)
+    result = _aggregate_frequency(per_fold, X.columns, selection_cfg.retention_threshold)
+    print(f"Final selected SNPs count: {len(result['selected_snps'])}")
+    return result
 
 
 def forward_selection(
@@ -378,9 +387,11 @@ def forward_selection(
         X_va, y_va = X.iloc[va_idx], y_arr[va_idx]
         subset, auc = _greedy_forward_fold(
             X_tr, y_tr, X_va, y_va, betas, selection_cfg, optimizer_cfg,
-            global_order=global_order,
+            global_order=global_order, fold=fold,
         )
         per_fold.append({"fold": fold, "selected_snps": subset, "val_auc": auc})
         logger.info("Finished fold %d/%d.", fold + 1, len(folds))
 
-    return _aggregate_frequency(per_fold, X.columns, selection_cfg.retention_threshold)
+    result = _aggregate_frequency(per_fold, X.columns, selection_cfg.retention_threshold)
+    print(f"Final selected SNPs count: {len(result['selected_snps'])}")
+    return result

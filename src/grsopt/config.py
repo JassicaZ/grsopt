@@ -23,6 +23,7 @@ class OptimizerConfig:
     n_initial: int = 5
     noise_scale: float = 0.3
     loss: str = "rank"
+    verbose: bool = False
 
 
 @dataclass

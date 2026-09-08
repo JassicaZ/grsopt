@@ -16,7 +16,7 @@ logger = logging.getLogger(__name__)
 
 class grsoptimizer:
     def __init__(self, original_betas, regularization_strength=0.01, 
-                 max_iter=2000, n_initial=5, noise_scale =0.3, loss='rank'):
+                 max_iter=2000, n_initial=5, noise_scale =0.3, loss='rank', verbose=False):
         """
         Optimizer for Genetic Risk Score (GRS) beta coefficients.
 
@@ -39,6 +39,8 @@ class grsoptimizer:
             Objective to minimise. ``'rank'`` is a pairwise logistic (rank)
             loss that more directly targets AUC; ``'log'`` is the standard
             logistic cross-entropy.
+        verbose : bool, default False
+            If True, print progress messages during optimisation.
         """
         if loss not in ('log', 'rank'):
             raise ValueError(f"loss must be 'log' or 'rank', got {loss!r}.")
@@ -48,6 +50,7 @@ class grsoptimizer:
         self.n_initial = n_initial
         self.noise_scale = noise_scale
         self.loss = loss
+        self.verbose = verbose
         self.optimized_betas = None
         self.optimization_history = []
         
@@ -185,7 +188,6 @@ class grsoptimizer:
         
         original_auc = roc_auc_score(y, grs_test)
         
-        print(f"Baseline test AUC (original betas): {original_auc:.4f}")
         
         working_betas = self.original_betas
         # Local search for improved betas
@@ -227,7 +229,6 @@ class grsoptimizer:
                 print(f"Exception during local optimization: {e}")
                 raise
         
-        print(f"Best training AUC found (local search): {best_local_auc:.4f}")
         
         if best_local_auc > original_auc:
             best_auc = best_local_auc
@@ -249,10 +250,11 @@ class grsoptimizer:
             'optimized_betas': self.optimized_betas,
             'beta_changes': self.optimized_betas - orginal_selected_betas
         }
-        print(f"\n=== Optimization Results ===")
-        print(f"Original model AUC: {original_auc:.4f}")
-        print(f"Optimized AUC: {best_auc:.4f}")
-        print(f"AUC improvement: {best_auc - original_auc:.4f}")
+        if self.verbose:
+            print(f"\n=== Optimization Results ===")
+            print(f"Original model AUC: {original_auc:.4f}")
+            print(f"Optimized AUC: {best_auc:.4f}")
+            print(f"AUC improvement: {best_auc - original_auc:.4f}")
         
         return results
     
@@ -326,7 +328,8 @@ class grsoptimizer:
         skf = StratifiedKFold(n_splits=cv_folds, shuffle=True, random_state=random_state)
 
         try:
-            print(f"Starting {cv_folds}-fold cross-validation: {len(param_combinations)} parameter combinations to evaluate...")
+            if self.verbose:
+                print(f"Starting {cv_folds}-fold cross-validation: {len(param_combinations)} parameter combinations to evaluate...")
 
             for params in param_combinations:
                 # Apply current hyperparameter combination to this optimizer instance
@@ -351,15 +354,17 @@ class grsoptimizer:
 
                 # Compute mean AUC across folds for this parameter combination.
                 mean_auc = np.mean(fold_aucs)
-                print(f"Mean validation AUC for {current_params}: {mean_auc:.4f}")
+                if self.verbose:
+                    print(f"Mean validation AUC for {current_params}: {mean_auc:.4f}")
 
                 # Update best seen hyperparameters if current mean AUC is better.
                 if mean_auc > best_auc:
                     best_auc = mean_auc
                     best_params = current_params
 
-            print(f"Best parameters: {json.dumps(best_params, indent=2)}")
-            print(f"Best mean validation AUC: {best_auc:.4f}")
+            if self.verbose:
+                print(f"Best parameters: {json.dumps(best_params, indent=2)}")
+                print(f"Best mean validation AUC: {best_auc:.4f}")
 
             return {
                 'best_params': best_params,
