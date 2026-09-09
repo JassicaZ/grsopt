@@ -276,10 +276,6 @@ def backward_selection(
     ranking is not recomputed inside each fold, but each fold's deletions are still
     accepted based on its own validation AUC.
 
-    Because the ranking is computed on the full data (which includes each fold's
-    validation part), the validation AUCs here are mildly optimistic; report
-    performance on an independent external set for honest evaluation.
-
     Returns a dict with ``per_fold``, ``frequency``, ``selected_snps``,
     ``mean_auc`` and ``std_auc``.
     """
@@ -333,10 +329,6 @@ def forward_selection(
     validation AUC improves on the best subset found so far by more than
     ``selection_cfg.margin``; the ranking is computed **once** on the full data and
     shared by every fold.
-
-    Because the ranking is computed on the full data (which includes each fold's
-    validation part), the validation AUCs here are mildly optimistic; report
-    performance on an independent external set for honest evaluation.
 
     Returns a dict with ``per_fold``, ``frequency``, ``selected_snps``,
     ``mean_auc`` and ``std_auc``.

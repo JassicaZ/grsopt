@@ -121,6 +121,9 @@ class grsoptimizer:
 
         This function returns a scalar loss to be minimized by the optimizer.
         """
+        if self.loss not in ('log', 'rank'):
+            raise ValueError(f"loss must be 'log' or 'rank', got {self.loss!r}.")
+
         try:
             if self.loss == 'rank':
                 loss = self._rank_auc_loss(betas, X_train, y_train)
@@ -146,16 +149,18 @@ class grsoptimizer:
         """
         Compute gradient of the objective with respect to `betas`.
 
-        Combines the gradient of the data loss (log or rank) and the gradient of
+        Combines the gradient of the data loss and the gradient of
         the L2 regularizer.
         """
         if self.loss == 'rank':
             grad_loss = self._rank_auc_gradient(betas, X_train, y_train)
-        else:
+        elif self.loss == 'log':
             N = len(y_train)
             grs_train = self._calculate_grs(X_train, betas)
             probs = self._sigmoid(grs_train)
             grad_loss = np.dot(X_train.T, (probs - y_train)) / N
+        else:
+            raise ValueError(f"loss must be 'log' or 'rank', got {self.loss!r}.")
 
         grad_reg = 2 * self.regularization_strength * (betas - self.original_betas)
         return grad_loss + grad_reg
@@ -317,11 +322,11 @@ class grsoptimizer:
                 raise ValueError(f"loss must be 'log' or 'rank', got {loss!r}.")
             self.loss = loss
 
-        # 初始化变量
+        # Initialize variables.
         best_params = None
         best_auc = -np.inf
 
-        # 生成所有超参数组合
+        # Generate all hyperparameter combinations.
         param_combinations = list(product(*param_grid.values()))
         param_names = list(param_grid.keys())
 

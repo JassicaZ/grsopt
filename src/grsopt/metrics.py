@@ -10,11 +10,11 @@ from sklearn.metrics import roc_auc_score
 def as_beta_series(betas, columns) -> pd.Series:
     """Normalise ``betas`` to a pandas Series indexed by ``columns``.
 
-    Accepts ``None`` (uniform weights), a pandas Series, a single-column
-    DataFrame, or a 1-D array-like whose length matches ``columns``.
+    Accepts a pandas Series, a single-column DataFrame, or a 1-D array-like
+    whose length matches ``columns``.
     """
     if betas is None:
-        return pd.Series(1.0, index=columns)
+        raise ValueError("betas must be provided.")
     if isinstance(betas, pd.DataFrame):
         if betas.shape[1] != 1:
             raise ValueError(
@@ -43,9 +43,8 @@ def calculate_auc(X, y, betas=None, selected_features="all") -> float:
         Genotype matrix with SNPs in columns and individuals in rows.
     y : array-like
         Binary disease status (0 = healthy, 1 = disease).
-    betas : pd.Series, pd.DataFrame, array-like or None, default None
-        Beta coefficients indexed by SNP name. If ``None``, an unweighted GRS
-        (all betas equal to 1) is used.
+    betas : pd.Series, pd.DataFrame or array-like
+        Beta coefficients indexed by SNP name. Must be provided.
     selected_features : str or list of str, default 'all'
         SNPs to evaluate. Use 'all' to include every column in ``X``.
 
