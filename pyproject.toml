@@ -9,7 +9,7 @@ description = "A Python package for optimizing genetic risk scoring (GRS) models
 readme = "README.md"
 license = { file = "LICENSE" }
 authors = [
-    { name = "Your Name", email = "2670548227@example.com" }
+    { name = "Jiayi Zheng", email = "2670548227@qq.com" }
 ]
 
 requires-python = ">=3.9"
@@ -24,7 +24,7 @@ dependencies = [
 ]
 
 [project.urls]
-Homepage = "https://github.com/yourusername/grsopt"
+Homepage = "https://github.com/JassicaZ/grsopt"
 
 [tool.setuptools.packages.find]
 where = ["src"]
