@@ -87,12 +87,6 @@ def rank_snps_by_importance(X, y, betas) -> ColumnSubset:
     return sorted(scores, key=scores.get, reverse=True)
 
 
-def _within_subset_ranking(X, y, betas, subset) -> ColumnSubset:
-    """Rank the SNPs within ``subset`` by importance (used by backward)."""
-    scores = _importance_scores(X, y, betas, subset)
-    return sorted(subset, key=scores.get, reverse=True)
-
-
 def fit_optimize_evaluate(
     X_tr, y_tr, X_va, y_va, selected, betas, optimizer_cfg: OptimizerConfig
 ) -> Tuple[float, float]:
@@ -138,16 +132,16 @@ def _greedy_backward_fold(
     betas,
     selection_cfg: SelectionConfig,
     optimizer_cfg: OptimizerConfig,
-    global_order: Optional[ColumnSubset] = None,
+    global_order: ColumnSubset,
     fold: int = 0,
 ) -> Tuple[ColumnSubset, float]:
     """Greedy backward elimination within a single fold.
 
     Deletions are tried from the least important SNP upward and accepted only if
     the optimised validation AUC improves on the best subset found so far by more
-    than ``selection_cfg.margin``. If ``global_order`` is provided, a shared
-    ranking drives the deletion order; otherwise the ranking is recomputed inside
-    the current subset of this fold. Returns ``(subset, val_auc)``.
+    than ``selection_cfg.margin``. The shared ``global_order`` ranking drives the
+    deletion order; the least important SNP (lowest global rank) is tried first.
+    Returns ``(subset, val_auc)``.
     """
     cols = list(X_tr.columns)
     start_n = selection_cfg.start_n if selection_cfg.start_n is not None else len(cols)
@@ -159,10 +153,7 @@ def _greedy_backward_fold(
     if selection_cfg.start_n is None:
         current = list(cols)
     else:
-        if global_order is not None:
-            current = global_order[:start_n]
-        else:
-            current = rank_snps_by_importance(X_tr, y_tr, betas)[:start_n]
+        current = global_order[:start_n]
 
     # Best model found so far: the full/start subset optimised on the training fold.
     best_auc = fit_optimize_evaluate(
@@ -170,13 +161,9 @@ def _greedy_backward_fold(
     )[0]
 
     while len(current) > end_n:
-        if global_order is not None:
-            # Try deletions from the least important (lowest global rank) upward.
-            position = {s: i for i, s in enumerate(global_order)}
-            try_order = sorted(current, key=lambda s: position[s], reverse=True)
-        else:
-            # Order from most to least important; try deletions least-first.
-            try_order = list(reversed(_within_subset_ranking(X_tr, y_tr, betas, current)))
+        # Try deletions from the least important (lowest global rank) upward.
+        position = {s: i for i, s in enumerate(global_order)}
+        try_order = sorted(current, key=lambda s: position[s], reverse=True)
         accepted = False
         for snp in try_order:
             candidate = [s for s in current if s != snp]
@@ -204,16 +191,14 @@ def _greedy_forward_fold(
     betas,
     selection_cfg: SelectionConfig,
     optimizer_cfg: OptimizerConfig,
-    global_order: Optional[ColumnSubset] = None,
+    global_order: ColumnSubset,
     fold: int = 0,
 ) -> Tuple[ColumnSubset, float]:
     """Greedy forward selection within a single fold.
 
-    SNPs are added in importance order (most important first) and accepted only
-    if the optimised validation AUC improves on the best subset found so far by
-    more than ``selection_cfg.margin``. If ``global_order`` is provided, a shared
-    ranking drives the addition order; otherwise the ranking is recomputed inside
-    this fold. Returns ``(subset, val_auc)``.
+    SNPs are added in the shared ``global_order`` (most important first) and
+    accepted only if the optimised validation AUC improves on the best subset
+    found so far by more than ``selection_cfg.margin``. Returns ``(subset, val_auc)``.
     """
     cols = list(X_tr.columns)
     start_n = selection_cfg.start_n if selection_cfg.start_n is not None else 10
@@ -221,11 +206,7 @@ def _greedy_forward_fold(
     start_n = max(1, min(start_n, len(cols)))
     end_n = max(start_n, min(end_n, len(cols)))
 
-    if global_order is not None:
-        order = global_order
-    else:
-        order = rank_snps_by_importance(X_tr, y_tr, betas)
-
+    order = global_order
     current = order[:start_n]
 
     # Best model found so far: the starting subset optimised on the training fold.
