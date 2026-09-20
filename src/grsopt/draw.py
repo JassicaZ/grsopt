@@ -22,8 +22,10 @@ def grs_pic(GRS, model_name, save_path=None):
 
     Returns
     -------
-    matplotlib.axes.Axes
-        Axes object of the GRS distribution plot.
+    None
+        The figure is displayed (and saved when ``save_path`` is given). It is
+        deliberately not returned: in Jupyter the returned artist would be
+        rendered a second time as the cell result, duplicating the plot.
     """
     # Compute the GRS for the two groups.
     disease_types = GRS['Disease'].unique()
@@ -31,7 +33,7 @@ def grs_pic(GRS, model_name, save_path=None):
     m2 = np.mean(GRS[GRS['Disease'] == disease_types[1]]['grs'])
 
     # Plot the GRS density distribution by disease status.
-    plt.figure(figsize=(10, 6))
+    fig = plt.figure(figsize=(10, 6))
     pg = sns.kdeplot(data=GRS, x='grs', hue='Disease', fill=True, common_norm=False, alpha=0.8, palette=['#2166AC', '#B2182B'])
 
     plt.axvline(x=m1, linestyle='dashed', color='#2166AC')
@@ -50,9 +52,7 @@ def grs_pic(GRS, model_name, save_path=None):
     if save_path and model_name:
         plt.savefig(f'{save_path}/{model_name}_grs.png')
     plt.show()
-    plt.close()  # Close the figure to avoid overlap between plots.
-
-    return pg
+    plt.close(fig)  # Close the figure to avoid overlap between plots.
 
 
 def roc_pic(GRS, model_name, save_path=None):
@@ -70,8 +70,10 @@ def roc_pic(GRS, model_name, save_path=None):
 
     Returns
     -------
-    matplotlib.figure.Figure
-        Figure object of the ROC curve plot.
+    None
+        The figure is displayed (and saved when ``save_path`` is given). It is
+        deliberately not returned: in Jupyter the returned figure would be
+        rendered a second time as the cell result, duplicating the plot.
     """
 
     # Encode disease labels to numeric values for ROC analysis.
@@ -102,9 +104,7 @@ def roc_pic(GRS, model_name, save_path=None):
     if save_path and model_name:
         plt.savefig(f'{save_path}/{model_name}_roc.png')
     plt.show()
-    plt.close()  # Close the figure to avoid overlap between plots.
-
-    return pg
+    plt.close(pg)  # Close the figure to avoid overlap between plots.
 
 
 if __name__ == '__main__':
