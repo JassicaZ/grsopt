@@ -24,7 +24,7 @@ def as_beta_series(betas, columns) -> pd.Series:
     if isinstance(betas, pd.Series):
         out = betas.reindex(columns)
         if out.isna().any():
-            missing = columns[out.isna().to_numpy()].tolist()
+            missing = [c for c in columns if c not in betas.index]
             raise ValueError(f"betas is missing coefficients for SNPs {missing}.")
         return out
     if len(betas) != len(columns):
