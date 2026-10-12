@@ -52,6 +52,39 @@ opt = grsoptimizer(
 result = opt.optimize(X, y)
 ```
 
+## Method
+
+### GRS scoring
+
+The score of individual $i$ is the weighted sum of its genotype dosages:
+
+$$\mathrm{GRS}_i=\sum_{j=1}^{p}X_{ij}\beta_j$$
+
+where $X_{ij}\in\{0,1,2\}$ is the dosage of SNP $j$ and $\beta_j$ its weight. AUC is computed from these scores.
+
+### Beta optimization
+
+The optimizer keeps this score form and tunes the weights around the published ones. For the current SNP set $S$:
+
+$$J(\boldsymbol\beta)=\mathcal{L}(\boldsymbol\beta)+\lambda\sum_{j\in S}\left(\beta_j-\beta_j^{(0)}\right)^2$$
+
+$\beta_j^{(0)}$ is the published weight of SNP $j$, $\lambda$ is `regularization_strength`, and the optimizer minimizes $J$. The data term $\mathcal{L}$ follows from `loss`:
+
+- `log`: $\mathcal{L}=-\frac{1}{N}\sum_{i=1}^{N}\left[y_i\log\sigma(s_i)+(1-y_i)\log(1-\sigma(s_i))\right]$
+- `rank`: $\mathcal{L}=\frac{1}{|P||N|}\sum_{i\in P}\sum_{j\in N}\log\left(1+e^{-(s_i-s_j)}\right)$
+
+with $s_i=\mathrm{GRS}_i$, $\sigma$ the sigmoid, and $P$ / $N$ the case / control sets. If no initialization beats the published betas on training AUC, the published betas are returned unchanged.
+
+### SNP selection
+
+Selection is a greedy search over SNP subsets, repeated inside each cross-validation fold.
+
+1. **Rank the candidates.** Score each SNP by how much AUC drops when it is removed from the current set, then order the SNPs from most to least useful.
+2. **Forward/backward selection.** Forward selection walks the ranking from the top and tries adding one SNP; backward selection walks it from the bottom and tries removing one. A trial subset $S'$ is accepted only if its optimized validation AUC beats the best value found so far in that fold, $\mathrm{AUC}^{*}$, by more than `margin`: $\mathrm{AUC}_{\mathrm{val}}(S')-\mathrm{AUC}^{*}>\text{margin}$. The search stops when no single change is accepted.
+3. **Count across folds.** A SNP is kept in the final signature when it is selected in at least a `retention_threshold` fraction of the $K$ folds.
+
+Forward starts from the top `start_n` SNPs and grows; backward starts from all SNPs and shrinks (see `SelectionConfig`). 
+
 ## API
 
 ### Configuration (`grsopt.config`)
@@ -106,8 +139,6 @@ pytest
 ```
 
 ## Notes
-
-- 🚧 This repository is **currently under development**. The core functionality is available, while additional features, examples, and documentation are being added and modified.
 
 - 🔒 **No example genotype data** is provided here due to privacy and ethical restrictions.
 - 🧪 The package has currently been validated on our internal datasets. If you test it on independent datasets, we would greatly appreciate your feedback.
