@@ -80,7 +80,7 @@ with $s_i=\mathrm{GRS}_i$, $\sigma$ the sigmoid, and $P$ / $N$ the case / contro
 Selection is a greedy search over SNP subsets, repeated inside each cross-validation fold.
 
 1. **Rank the candidates.** Score each SNP by how much AUC drops when it is removed from the current set, then order the SNPs from most to least useful.
-2. **Forward/backward selection.** Forward selection walks the ranking from the top and tries adding one SNP; backward selection walks it from the bottom and tries removing one. A trial subset $S'$ is accepted only if its optimized validation AUC beats the best value found so far in that fold, $\mathrm{AUC}^{*}$, by more than `margin`: $\mathrm{AUC}_{\mathrm{val}}(S')-\mathrm{AUC}^{*}>\text{margin}$. The search stops when no single change is accepted.
+2. **Forward/backward selection.** Forward selection walks the ranking from the top and tries adding one SNP; backward selection walks it from the bottom and tries removing one. A trial subset $S'$ is accepted only if its optimized validation AUC beats the best value found so far in that fold, $\mathrm{AUC}^{\ast}$, by more than `margin`: $\mathrm{AUC}_{\mathrm{val}}(S')-\mathrm{AUC}^{\ast}>\mathrm{margin}$. The search stops when no single change is accepted.
 3. **Count across folds.** A SNP is kept in the final signature when it is selected in at least a `retention_threshold` fraction of the $K$ folds.
 
 Forward starts from the top `start_n` SNPs and grows; backward starts from all SNPs and shrinks (see `SelectionConfig`). 
